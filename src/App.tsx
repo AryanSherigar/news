@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, type FormEvent, useRef, useMemo } fro
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter } from 'lucide-react';
+import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -12,6 +12,13 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // --- Types ---
+interface Citation {
+  source_name: string;
+  url: string;
+  published_at: string;
+  snippet: string;
+}
+
 interface StoryEvent {
   id: string;
   title: string;
@@ -21,6 +28,7 @@ interface StoryEvent {
   sentiment: 'positive' | 'negative' | 'neutral';
   playersInvolved: string[];
   arcId: string;
+  citations: Citation[];
 }
 
 interface Player {
@@ -53,6 +61,27 @@ interface Insight {
   id: string;
   type: 'who_is_winning' | 'turning_point' | 'key_player' | 'summary';
   content: string;
+  citations: Citation[];
+}
+
+interface NewsItem {
+  title: string;
+  link: string;
+  source: string;
+  published_at: string;
+}
+
+interface PlayerProfileData {
+  name: string;
+  summary: string;
+  role_in_story: string;
+  motivations: string[];
+  alliances: Array<{ name: string; description: string }>;
+  conflicts: Array<{ name: string; description: string }>;
+  timeline_contributions: Array<{ event: string; impact: string }>;
+  risk_score: number;
+  outlook: string;
+  citations: string[];
 }
 
 interface StoryData {
@@ -61,6 +90,8 @@ interface StoryData {
   relationships: Relationship[];
   arcs: Arc[];
   insights: Insight[];
+  news_context?: NewsItem[];
+  fetched_at?: string | null;
 }
 
 // --- Custom Node for React Flow ---
@@ -86,6 +117,59 @@ const nodeTypes = {
   playerNode: PlayerNode,
 };
 
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return 'Unknown';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(parsed);
+};
+
+const CitationList = ({ citations, compact = false }: { citations?: Citation[]; compact?: boolean }) => {
+  if (!citations?.length) return null;
+
+  return (
+    <div className={cn('space-y-2', compact && 'space-y-1.5')}>
+      {citations.map((citation, index) => (
+        <div
+          key={`${citation.url}-${index}`}
+          className={cn(
+            'rounded-lg border border-slate-200/80 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50 px-3 py-2',
+            compact && 'px-2.5 py-2'
+          )}
+        >
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-slate-700 dark:text-slate-200">
+            <span className="inline-flex items-center gap-1">
+              <Newspaper className="w-3 h-3" />
+              {citation.source_name}
+            </span>
+            <span className="text-slate-400 dark:text-slate-500">•</span>
+            <span className="text-slate-500 dark:text-slate-400">{formatDateTime(citation.published_at)}</span>
+            {citation.url && (
+              <a
+                href={citation.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                Source <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">{citation.snippet}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const LOADING_MESSAGES = [
   "Searching the web for the latest data...",
   "Extracting timeline and sources...",
@@ -104,7 +188,7 @@ export default function App() {
   const [activeEventIdx, setActiveEventIdx] = useState<number | null>(null);
 
   const [deepDivePlayer, setDeepDivePlayer] = useState<Player | null>(null);
-  const [deepDiveContent, setDeepDiveContent] = useState<string | null>(null);
+  const [deepDiveContent, setDeepDiveContent] = useState<PlayerProfileData | null>(null);
   const [loadingDeepDive, setLoadingDeepDive] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -280,37 +364,13 @@ export default function App() {
         throw new Error(`API error: ${response.statusText}`);
       }
 
-      const profile = await response.json();
+      const profile: PlayerProfileData = await response.json();
       
       // Format the structured profile into readable text for display
-      const formattedProfile = `
-## ${profile.name}
-
-**Summary:** ${profile.summary}
-
-**Role in Story:** ${profile.role_in_story}
-
-**Motivations:**
-${profile.motivations.map(m => `- ${m}`).join('\n')}
-
-**Alliances:**
-${profile.alliances.map(a => `- ${a.name}: ${a.description}`).join('\n')}
-
-**Conflicts:**
-${profile.conflicts.map(c => `- ${c.name}: ${c.description}`).join('\n')}
-
-**Timeline Contributions:**
-${profile.timeline_contributions.map(t => `- ${t.event}: ${t.impact}`).join('\n')}
-
-**Risk Score:** ${(profile.risk_score * 100).toFixed(0)}%
-
-**Outlook:** ${profile.outlook}
-      `.trim();
-      
-      setDeepDiveContent(formattedProfile);
+      setDeepDiveContent(profile);
     } catch (err) {
       console.error(err);
-      setDeepDiveContent("Failed to load profile.");
+      setDeepDiveContent(null);
     } finally {
       setLoadingDeepDive(false);
     }
@@ -406,7 +466,9 @@ ${profile.timeline_contributions.map(t => `- ${t.event}: ${t.impact}`).join('\n'
           relationships: Array.isArray(rawData.relationships) ? rawData.relationships : [],
           timeline: Array.isArray(rawData.timeline) ? rawData.timeline : [],
           arcs: Array.isArray(rawData.arcs) ? rawData.arcs : [],
-          insights: Array.isArray(rawData.insights) ? rawData.insights : []
+          insights: Array.isArray(rawData.insights) ? rawData.insights : [],
+          news_context: Array.isArray(rawData.news_context) ? rawData.news_context : [],
+          fetched_at: rawData.fetched_at ?? null
         };
         setData(parsedData);
         setupGraph(parsedData);
@@ -461,7 +523,14 @@ ${profile.timeline_contributions.map(t => `- ${t.event}: ${t.impact}`).join('\n'
               <div className="bg-indigo-600 p-2 rounded-lg">
                 <TrendingUp className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Story Arc Tracker</h1>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Story Arc Tracker</h1>
+                {data?.fetched_at && (
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    Last updated {formatDateTime(data.fetched_at)}
+                  </p>
+                )}
+              </div>
             </div>
             
             <div className="flex-1 max-w-3xl flex items-center gap-3">
@@ -669,7 +738,8 @@ ${profile.timeline_contributions.map(t => `- ${t.event}: ${t.impact}`).join('\n'
                         </div>
                       </div>
                       <div className="font-semibold text-slate-900 dark:text-white mb-1">{event.title}</div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-2">{event.description}</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-3">{event.description}</div>
+                      <CitationList citations={event.citations} compact />
                     </div>
                   ))}
                 </div>
@@ -852,7 +922,8 @@ ${profile.timeline_contributions.map(t => `- ${t.event}: ${t.impact}`).join('\n'
                         <Icon className="w-5 h-5 shrink-0 mt-0.5" />
                         <div>
                           <div className="text-xs font-bold uppercase tracking-wider mb-1 opacity-80">{insight.type.replace(/_/g, ' ')}</div>
-                          <div className="opacity-90">{insight.content}</div>
+                          <div className="opacity-90 mb-3">{insight.content}</div>
+                          <CitationList citations={insight.citations} compact />
                         </div>
                       </div>
                     );
@@ -888,12 +959,57 @@ ${profile.timeline_contributions.map(t => `- ${t.event}: ${t.impact}`).join('\n'
                     <Loader2 className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin mb-4" />
                     <p className="text-sm text-slate-500 dark:text-slate-400">Generating deep dive profile...</p>
                   </div>
-                ) : (
-                  <div className="prose prose-sm prose-slate dark:prose-invert max-w-none">
-                    {deepDiveContent?.split('\n').filter(p => p.trim()).map((paragraph, i) => (
-                      <p key={i} className="mb-3 last:mb-0 text-slate-700 dark:text-slate-300">{paragraph}</p>
-                    ))}
+                ) : deepDiveContent ? (
+                  <div className="space-y-5 text-sm text-slate-700 dark:text-slate-300">
+                    <section>
+                      <h4 className="font-semibold text-slate-900 dark:text-white mb-1">Summary</h4>
+                      <p>{deepDiveContent.summary}</p>
+                    </section>
+                    <section>
+                      <h4 className="font-semibold text-slate-900 dark:text-white mb-1">Role in Story</h4>
+                      <p>{deepDiveContent.role_in_story}</p>
+                    </section>
+                    <section>
+                      <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Motivations</h4>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {deepDiveContent.motivations?.map((motivation: string) => <li key={motivation}>{motivation}</li>)}
+                      </ul>
+                    </section>
+                    <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Alliances</h4>
+                        <ul className="space-y-2">
+                          {deepDiveContent.alliances?.map((alliance: { name: string; description: string }, idx: number) => <li key={`${alliance.name}-${idx}`}><span className="font-medium">{alliance.name}</span>: {alliance.description}</li>)}
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Conflicts</h4>
+                        <ul className="space-y-2">
+                          {deepDiveContent.conflicts?.map((conflict: { name: string; description: string }, idx: number) => <li key={`${conflict.name}-${idx}`}><span className="font-medium">{conflict.name}</span>: {conflict.description}</li>)}
+                        </ul>
+                      </div>
+                    </section>
+                    <section>
+                      <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Timeline Contributions</h4>
+                      <ul className="space-y-2">
+                        {deepDiveContent.timeline_contributions?.map((item: { event: string; impact: string }, idx: number) => <li key={`${item.event}-${idx}`}><span className="font-medium">{item.event}</span>: {item.impact}</li>)}
+                      </ul>
+                    </section>
+                    <section className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-3 items-start">
+                      <h4 className="font-semibold text-slate-900 dark:text-white">Risk Score</h4>
+                      <p>{(deepDiveContent.risk_score * 100).toFixed(0)}%</p>
+                      <h4 className="font-semibold text-slate-900 dark:text-white">Outlook</h4>
+                      <p>{deepDiveContent.outlook}</p>
+                    </section>
+                    <section>
+                      <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Citations</h4>
+                      <ul className="list-disc pl-5 space-y-1 text-slate-600 dark:text-slate-400">
+                        {deepDiveContent.citations?.map((citation: string, idx: number) => <li key={`${citation}-${idx}`}>{citation}</li>)}
+                      </ul>
+                    </section>
                   </div>
+                ) : (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Failed to load profile.</p>
                 )}
               </div>
             </div>
