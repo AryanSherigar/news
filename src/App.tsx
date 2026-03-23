@@ -303,6 +303,7 @@ export default function App() {
 
   const [deepDivePlayer, setDeepDivePlayer] = useState<Player | null>(null);
   const [deepDiveContent, setDeepDiveContent] = useState<PlayerProfileData | null>(null);
+  const [deepDiveCache, setDeepDiveCache] = useState<Record<string, PlayerProfileData>>({});
   const [loadingDeepDive, setLoadingDeepDive] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -454,8 +455,18 @@ export default function App() {
     if (!data) return;
     const player = data.players.find(p => p.id === node.id);
     if (!player) return;
-    
+
+    const cacheKey = `${topic}::${player.id}`;
+    const cachedProfile = deepDiveCache[cacheKey];
+
     setDeepDivePlayer(player);
+
+    if (cachedProfile) {
+      setDeepDiveContent(cachedProfile);
+      setLoadingDeepDive(false);
+      return;
+    }
+
     setDeepDiveContent(null);
     setLoadingDeepDive(true);
 
@@ -473,6 +484,10 @@ export default function App() {
       }
 
       const profile: PlayerProfileData = await response.json();
+      setDeepDiveCache((currentCache) => ({
+        ...currentCache,
+        [cacheKey]: profile,
+      }));
       setDeepDiveContent(profile);
     } catch (err) {
       console.error(err);
@@ -480,7 +495,7 @@ export default function App() {
     } finally {
       setLoadingDeepDive(false);
     }
-  }, [data, topic]);
+  }, [data, deepDiveCache, topic]);
 
   const handleDownload = async () => {
     const element = document.getElementById('dashboard-content');
@@ -559,6 +574,9 @@ export default function App() {
     setError(null);
     setData(null);
     setActiveEventIdx(null);
+    setDeepDivePlayer(null);
+    setDeepDiveContent(null);
+    setDeepDiveCache({});
     setTopic(searchQuery);
 
     const cacheKey = `story-arc-${searchQuery.toLowerCase().trim()}`;
