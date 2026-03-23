@@ -47,7 +47,8 @@ async def generate_player_profile(
     player_type: str,
     topic: str,
     timeline_context: str,
-    related_players_context: str
+    related_players_context: str,
+    relationship_context: str
 ) -> PlayerProfile:
     """
     Generate a detailed player profile for the deep-dive feature.
@@ -67,7 +68,8 @@ async def generate_player_profile(
         "player_type": player_type,
         "topic": topic,
         "timeline_context": timeline_context,
-        "related_players_context": related_players_context
+        "related_players_context": related_players_context,
+        "relationship_context": relationship_context
     })
     
     # Ensure the ID matches the player_id provided
