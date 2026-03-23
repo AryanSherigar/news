@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --edge-label-color: #475569;
+  --edge-bg-color: #f8fafc;
+}
+
+.dark {
+  --edge-label-color: #cbd5e1;
+  --edge-bg-color: #0f172a;
+}
