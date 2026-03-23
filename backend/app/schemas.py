@@ -137,6 +137,27 @@ class StoryData(BaseModel):
     fetched_at: datetime | None = Field(default=None, description="Timestamp when the news context was fetched")
 
 
+class ProfileRelationship(BaseModel):
+    """Structured relationship summary for a profile section."""
+
+    player_id: str | None = Field(default=None, description="Referenced player ID when available")
+    name: str
+    description: str
+    relationship_type: RelationshipType | None = Field(default=None, description="Alliance/conflict/neutral when known")
+    strength: float | None = Field(default=None, ge=0, le=1, description="Relationship strength when known")
+    citations: list[Citation] = Field(default_factory=list, description="Supporting citations for this relationship")
+
+
+class TimelineContribution(BaseModel):
+    """Structured event contribution summary for a profile section."""
+
+    event_id: str | None = Field(default=None, description="Referenced event ID when available")
+    event: str
+    date: str | None = Field(default=None, description="Event date when available")
+    impact: str
+    citations: list[Citation] = Field(default_factory=list, description="Supporting citations for this contribution")
+
+
 # --- Deep-Dive Profile Schema ---
 class PlayerProfile(BaseModel):
     """Structured deep-dive profile for a player."""
@@ -146,9 +167,9 @@ class PlayerProfile(BaseModel):
     summary: str = Field(..., description="Executive summary of the player's role")
     role_in_story: str = Field(..., description="Detailed explanation of their position in the narrative")
     motivations: list[str] = Field(..., description="Inferred goals and motives")
-    alliances: list[dict] = Field(..., description="List of allies with brief descriptions")
-    conflicts: list[dict] = Field(..., description="List of adversaries with brief descriptions")
-    timeline_contributions: list[dict] = Field(..., description="Key events they influenced or participated in")
+    alliances: list[ProfileRelationship] = Field(..., description="List of allies with brief descriptions")
+    conflicts: list[ProfileRelationship] = Field(..., description="List of adversaries with brief descriptions")
+    timeline_contributions: list[TimelineContribution] = Field(..., description="Key events they influenced or participated in")
     risk_score: float = Field(..., ge=0, le=1, description="Strategic risk assessment from 0 to 1")
     outlook: str = Field(..., description="Prediction of future trajectory")
-    citations: list[str] = Field(default_factory=list, description="Supporting evidence or source references")
+    citations: list[Citation] = Field(default_factory=list, description="Supporting evidence or source references")
