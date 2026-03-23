@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Literal
+from datetime import datetime
 from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 # --- Enums ---
@@ -42,9 +43,28 @@ class InsightType(str, Enum):
     SUMMARY = "summary"
 
 
+class Citation(BaseModel):
+    """Structured source reference for generated claims."""
+
+    source_name: str = Field(..., description="Publisher or publication name")
+    url: str = Field(..., description="Canonical article URL")
+    published_at: str = Field(..., description="Original publication timestamp in ISO format if available")
+    snippet: str = Field(..., description="Short supporting excerpt or paraphrase grounded in the source")
+
+
+class NewsItem(BaseModel):
+    """Structured live-news context item passed into the analysis prompt."""
+
+    title: str
+    link: str
+    source: str
+    published_at: str
+
+
 # --- Story Arc Schemas ---
 class StoryEvent(BaseModel):
     """A significant moment that changes the state of the story."""
+
     id: str
     title: str
     description: str
@@ -53,10 +73,16 @@ class StoryEvent(BaseModel):
     sentiment: SentimentType
     playersInvolved: list[str]
     arcId: str
+    citations: list[Citation] = Field(
+        default_factory=list,
+        min_length=1,
+        description="At least one supporting citation for the event"
+    )
 
 
 class Player(BaseModel):
     """An important entity in the story."""
+
     id: str
     name: str
     type: PlayerType
@@ -66,6 +92,7 @@ class Player(BaseModel):
 
 class Relationship(BaseModel):
     """Dynamic relationship between two players."""
+
     source: str = Field(..., description="Player ID")
     target: str = Field(..., description="Player ID")
     type: RelationshipType
@@ -75,6 +102,7 @@ class Relationship(BaseModel):
 
 class Arc(BaseModel):
     """A meaningful narrative thread composed of multiple events."""
+
     id: str
     title: str = Field(..., description="Concise name (e.g., 'Legal Battle')")
     summary: str = Field(..., description="2–3 sentence explanation of the arc")
@@ -86,23 +114,33 @@ class Arc(BaseModel):
 
 class Insight(BaseModel):
     """High-level understanding derived from the story."""
+
     id: str
     type: InsightType
     content: str
+    citations: list[Citation] = Field(
+        default_factory=list,
+        min_length=1,
+        description="At least one supporting citation for the insight"
+    )
 
 
 class StoryData(BaseModel):
     """Complete story analysis response."""
+
     timeline: list[StoryEvent]
     players: list[Player]
     relationships: list[Relationship]
     arcs: list[Arc]
     insights: list[Insight]
+    news_context: list[NewsItem] = Field(default_factory=list, description="Structured news items used as context")
+    fetched_at: datetime | None = Field(default=None, description="Timestamp when the news context was fetched")
 
 
 # --- Deep-Dive Profile Schema ---
 class PlayerProfile(BaseModel):
     """Structured deep-dive profile for a player."""
+
     id: str = Field(..., description="Player ID")
     name: str
     summary: str = Field(..., description="Executive summary of the player's role")
