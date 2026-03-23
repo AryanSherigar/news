@@ -1,18 +1,35 @@
 from typing import Optional
+
 from pydantic import BaseModel
+
+from app.schemas import Relationship, StoryEvent
+
+
+class RelatedPlayerContext(BaseModel):
+    """Structured related-player context for profile generation."""
+
+    player_id: str
+    name: str
+    role: str
+    relationship_to_selected: str
 
 
 # API request/response models
 class AnalyzeRequest(BaseModel):
     """Request model for story analysis endpoint."""
+
     topic: str
     mode: Optional[str] = None  # reserved for future use
 
 
 class PlayerProfileRequest(BaseModel):
     """Request model for player profile deep-dive endpoint."""
+
     player_id: str
     player_name: str
     player_role: str
     player_type: str
     topic: str
+    timeline_slice: list[StoryEvent]
+    relationships: list[Relationship]
+    player_neighborhood: list[RelatedPlayerContext]

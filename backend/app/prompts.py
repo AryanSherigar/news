@@ -155,6 +155,9 @@ Timeline of events:
 Related players in the story:
 {related_players_context}
 
+Relationship context for this player:
+{relationship_context}
+
 ---
 
 ## OUTPUT FORMAT (STRICT JSON ONLY)
@@ -167,26 +170,28 @@ Return ONLY valid JSON with the following structure:
   "summary": "executive summary",
   "role_in_story": "detailed role",
   "motivations": ["motivation1", "motivation2"],
-  "alliances": [{{"name": "ally_name", "description": "relationship"}}],
-  "conflicts": [{{"name": "adversary_name", "description": "conflict"}}],
-  "timeline_contributions": [{{"event": "event_title", "impact": "how they impacted"}}],
+  "alliances": [{{"player_id": "ally_id", "name": "ally_name", "description": "relationship", "relationship_type": "alliance", "strength": 0.7, "citations": [Citation]}}],
+  "conflicts": [{{"player_id": "adversary_id", "name": "adversary_name", "description": "conflict", "relationship_type": "conflict", "strength": 0.8, "citations": [Citation]}}],
+  "timeline_contributions": [{{"event_id": "event_id", "event": "event_title", "date": "ISO-or-relative-date", "impact": "how they impacted", "citations": [Citation]}}],
   "risk_score": 0.75,
   "outlook": "future trajectory prediction",
-  "citations": ["reference1", "reference2"]
+  "citations": [Citation]
 }}
 
 ---
 
 ## INSTRUCTIONS
 
-1. Summarize their core motivations and goals
-2. Identify all major alliances and conflicts
-3. List key events they influenced or participated in
-4. Assess strategic risk (0-1 scale)
-5. Predict their likely trajectory
-6. Support with citations from the story
+1. Summarize their core motivations and goals using the provided timeline and relationship context.
+2. Identify major alliances and conflicts using the actual relationship data and player neighborhood.
+3. List the concrete timeline events they influenced or participated in, prioritizing the supplied timeline slice.
+4. Assess strategic risk (0-1 scale) based on the player's recent event history, alliances, and conflicts.
+5. Predict their likely trajectory grounded in the current analysis only.
+6. Every alliance, conflict, timeline contribution, and top-level citation must reference provided story evidence.
+7. Reuse the supplied player/event IDs when they are present in the context.
+8. Do not fall back to generic or placeholder descriptions; synthesize only from the supplied analysis.
 
-Keep all text concise and markdown-friendly for UI rendering.
+Keep all text concise and structured for direct UI rendering.
 
 ---
 

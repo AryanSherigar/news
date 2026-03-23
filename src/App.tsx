@@ -71,17 +71,42 @@ interface NewsItem {
   published_at: string;
 }
 
+interface ProfileRelationship {
+  player_id?: string | null;
+  name: string;
+  description: string;
+  relationship_type?: Relationship['type'] | null;
+  strength?: number | null;
+  citations: Citation[];
+}
+
+interface TimelineContribution {
+  event_id?: string | null;
+  event: string;
+  date?: string | null;
+  impact: string;
+  citations: Citation[];
+}
+
+interface RelatedPlayerContext {
+  player_id: string;
+  name: string;
+  role: string;
+  relationship_to_selected: string;
+}
+
 interface PlayerProfileData {
+  id: string;
   name: string;
   summary: string;
   role_in_story: string;
   motivations: string[];
-  alliances: Array<{ name: string; description: string }>;
-  conflicts: Array<{ name: string; description: string }>;
-  timeline_contributions: Array<{ event: string; impact: string }>;
+  alliances: ProfileRelationship[];
+  conflicts: ProfileRelationship[];
+  timeline_contributions: TimelineContribution[];
   risk_score: number;
   outlook: string;
-  citations: string[];
+  citations: Citation[];
 }
 
 interface StoryData {
@@ -170,6 +195,95 @@ const CitationList = ({ citations, compact = false }: { citations?: Citation[]; 
   );
 };
 
+
+const buildProfileRequestContext = (storyData: StoryData, player: Player, currentTopic: string) => {
+  const timelineSlice = storyData.timeline.filter((event) => event.playersInvolved.includes(player.id));
+  const relationships = storyData.relationships.filter(
+    (relationship) => relationship.source === player.id || relationship.target === player.id,
+  );
+
+  const playerNeighborhood: RelatedPlayerContext[] = relationships.map((relationship) => {
+    const relatedPlayerId = relationship.source === player.id ? relationship.target : relationship.source;
+    const relatedPlayer = storyData.players.find((candidate) => candidate.id === relatedPlayerId);
+
+    return {
+      player_id: relatedPlayerId,
+      name: relatedPlayer?.name ?? relatedPlayerId,
+      role: relatedPlayer?.role ?? 'Related player',
+      relationship_to_selected: relationship.description,
+    };
+  });
+
+  return {
+    player_id: player.id,
+    player_name: player.name,
+    player_role: player.role,
+    player_type: player.type,
+    topic: currentTopic,
+    timeline_slice: timelineSlice,
+    relationships,
+    player_neighborhood: playerNeighborhood,
+  };
+};
+
+const ProfileListSection = ({
+  title,
+  emptyLabel,
+  items,
+}: {
+  title: string;
+  emptyLabel: string;
+  items: ProfileRelationship[];
+}) => {
+  return (
+    <section>
+      <h4 className="font-semibold text-slate-900 dark:text-white mb-2">{title}</h4>
+      {items.length > 0 ? (
+        <ul className="space-y-3">
+          {items.map((item, idx) => (
+            <li key={`${item.name}-${idx}`} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-slate-900 dark:text-white">{item.name}</span>
+                {typeof item.strength === 'number' && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Strength {(item.strength * 100).toFixed(0)}%</span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.description}</p>
+              <CitationList citations={item.citations} compact />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">{emptyLabel}</p>
+      )}
+    </section>
+  );
+};
+
+const TimelineContributionSection = ({ items }: { items: TimelineContribution[] }) => {
+  return (
+    <section>
+      <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Timeline Contributions</h4>
+      {items.length > 0 ? (
+        <ul className="space-y-3">
+          {items.map((item, idx) => (
+            <li key={`${item.event}-${idx}`} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-medium text-slate-900 dark:text-white">{item.event}</span>
+                {item.date && <span className="text-xs text-slate-500 dark:text-slate-400">{item.date}</span>}
+              </div>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{item.impact}</p>
+              <CitationList citations={item.citations} compact />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">No timeline contributions were identified.</p>
+      )}
+    </section>
+  );
+};
+
 const LOADING_MESSAGES = [
   "Searching the web for the latest data...",
   "Extracting timeline and sources...",
@@ -189,6 +303,7 @@ export default function App() {
 
   const [deepDivePlayer, setDeepDivePlayer] = useState<Player | null>(null);
   const [deepDiveContent, setDeepDiveContent] = useState<PlayerProfileData | null>(null);
+  const [deepDiveCache, setDeepDiveCache] = useState<Record<string, PlayerProfileData>>({});
   const [loadingDeepDive, setLoadingDeepDive] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -340,8 +455,18 @@ export default function App() {
     if (!data) return;
     const player = data.players.find(p => p.id === node.id);
     if (!player) return;
-    
+
+    const cacheKey = `${topic}::${player.id}`;
+    const cachedProfile = deepDiveCache[cacheKey];
+
     setDeepDivePlayer(player);
+
+    if (cachedProfile) {
+      setDeepDiveContent(cachedProfile);
+      setLoadingDeepDive(false);
+      return;
+    }
+
     setDeepDiveContent(null);
     setLoadingDeepDive(true);
 
@@ -351,13 +476,7 @@ export default function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          player_id: player.id,
-          player_name: player.name,
-          player_role: player.role,
-          player_type: player.type,
-          topic: topic,
-        }),
+        body: JSON.stringify(buildProfileRequestContext(data, player, topic)),
       });
 
       if (!response.ok) {
@@ -365,8 +484,10 @@ export default function App() {
       }
 
       const profile: PlayerProfileData = await response.json();
-      
-      // Format the structured profile into readable text for display
+      setDeepDiveCache((currentCache) => ({
+        ...currentCache,
+        [cacheKey]: profile,
+      }));
       setDeepDiveContent(profile);
     } catch (err) {
       console.error(err);
@@ -374,7 +495,7 @@ export default function App() {
     } finally {
       setLoadingDeepDive(false);
     }
-  }, [data, topic]);
+  }, [data, deepDiveCache, topic]);
 
   const handleDownload = async () => {
     const element = document.getElementById('dashboard-content');
@@ -453,6 +574,9 @@ export default function App() {
     setError(null);
     setData(null);
     setActiveEventIdx(null);
+    setDeepDivePlayer(null);
+    setDeepDiveContent(null);
+    setDeepDiveCache({});
     setTopic(searchQuery);
 
     const cacheKey = `story-arc-${searchQuery.toLowerCase().trim()}`;
@@ -976,25 +1100,18 @@ export default function App() {
                       </ul>
                     </section>
                     <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Alliances</h4>
-                        <ul className="space-y-2">
-                          {deepDiveContent.alliances?.map((alliance: { name: string; description: string }, idx: number) => <li key={`${alliance.name}-${idx}`}><span className="font-medium">{alliance.name}</span>: {alliance.description}</li>)}
-                        </ul>
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Conflicts</h4>
-                        <ul className="space-y-2">
-                          {deepDiveContent.conflicts?.map((conflict: { name: string; description: string }, idx: number) => <li key={`${conflict.name}-${idx}`}><span className="font-medium">{conflict.name}</span>: {conflict.description}</li>)}
-                        </ul>
-                      </div>
+                      <ProfileListSection
+                        title="Alliances"
+                        emptyLabel="No alliances were identified."
+                        items={deepDiveContent.alliances ?? []}
+                      />
+                      <ProfileListSection
+                        title="Conflicts"
+                        emptyLabel="No conflicts were identified."
+                        items={deepDiveContent.conflicts ?? []}
+                      />
                     </section>
-                    <section>
-                      <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Timeline Contributions</h4>
-                      <ul className="space-y-2">
-                        {deepDiveContent.timeline_contributions?.map((item: { event: string; impact: string }, idx: number) => <li key={`${item.event}-${idx}`}><span className="font-medium">{item.event}</span>: {item.impact}</li>)}
-                      </ul>
-                    </section>
+                    <TimelineContributionSection items={deepDiveContent.timeline_contributions ?? []} />
                     <section className="grid grid-cols-1 sm:grid-cols-[120px_1fr] gap-3 items-start">
                       <h4 className="font-semibold text-slate-900 dark:text-white">Risk Score</h4>
                       <p>{(deepDiveContent.risk_score * 100).toFixed(0)}%</p>
@@ -1003,9 +1120,7 @@ export default function App() {
                     </section>
                     <section>
                       <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Citations</h4>
-                      <ul className="list-disc pl-5 space-y-1 text-slate-600 dark:text-slate-400">
-                        {deepDiveContent.citations?.map((citation: string, idx: number) => <li key={`${citation}-${idx}`}>{citation}</li>)}
-                      </ul>
+                      <CitationList citations={deepDiveContent.citations} />
                     </section>
                   </div>
                 ) : (
