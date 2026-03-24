@@ -1,0 +1,44 @@
+budget_2026:
+  keywords:
+    - "Union Budget 2026"
+    - "Budget 2026"
+    - "Nirmala Sitharaman"
+    - "tax slab"
+    - "fiscal deficit"
+    - "capex"
+    - "budget speech"
+    - "budget session"
+  query_templates:
+    - "site:<domain> <keyword> <date_hint>"
+    - "site:<domain> <keyword> analysis"
+    - "site:<domain> <keyword> live updates"
+  max_urls_per_query: 10
+
+us_iran_conflict:
+  keywords:
+    - "US Iran tensions"
+    - "Iran retaliation"
+    - "US strikes"
+    - "IRGC"
+    - "sanctions on Iran"
+    - "Persian Gulf escalation"
+    - "Middle East escalation US Iran"
+  query_templates:
+    - "site:<domain> <keyword> <date_hint>"
+    - "site:<domain> <keyword> analysis"
+    - "site:<domain> <keyword> live updates"
+  max_urls_per_query: 10
+
+israel_palestine_conflict:
+  keywords:
+    - "Israel Palestine conflict"
+    - "Gaza ceasefire"
+    - "West Bank violence"
+    - "Hamas Israel"
+    - "humanitarian aid Gaza"
+    - "UN resolution Gaza"
+  query_templates:
+    - "site:<domain> <keyword> <date_hint>"
+    - "site:<domain> <keyword> analysis"
+    - "site:<domain> <keyword> live updates"
+  max_urls_per_query: 10
