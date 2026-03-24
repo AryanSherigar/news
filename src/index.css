@@ -1,13 +1,127 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap");
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --edge-label-color: #475569;
   --edge-bg-color: #f8fafc;
+  --page-bg: #ebe9e5;
+  --page-fg: #1c1a17;
+  --surface: #f7f6f3;
+  --surface-strong: #ffffff;
+  --surface-muted: #efede8;
+  --line: #d7d2c8;
+  --line-strong: #b7b0a5;
+  --brand: #111111;
+  --accent: #b61f24;
+  --muted-fg: #696356;
+  --card-shadow: 0 10px 30px rgba(28, 26, 23, 0.08);
 }
 
 .dark {
   --edge-label-color: #cbd5e1;
   --edge-bg-color: #0f172a;
+  --page-bg: #11100f;
+  --page-fg: #f4f1eb;
+  --surface: #1a1917;
+  --surface-strong: #23211f;
+  --surface-muted: #191715;
+  --line: #36322d;
+  --line-strong: #4d473f;
+  --brand: #f4f1eb;
+  --accent: #d33a3f;
+  --muted-fg: #b8b1a4;
+  --card-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+    background: radial-gradient(circle at top left, #f5f3ee 0%, var(--page-bg) 50%);
+    color: var(--page-fg);
+  }
+
+  .dark body {
+    background: radial-gradient(circle at top left, #1a1713 0%, var(--page-bg) 55%);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Cormorant Garamond", Georgia, serif;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  .editorial-shell {
+    @apply min-h-screen transition-colors duration-300;
+    background-color: var(--page-bg);
+    color: var(--page-fg);
+  }
+
+  .editorial-frame {
+    @apply mx-auto w-full max-w-[1200px] rounded-[2rem] border px-4 py-4 md:px-6;
+    background: color-mix(in oklab, var(--surface) 92%, white 8%);
+    border-color: var(--line);
+    box-shadow: var(--card-shadow);
+  }
+
+  .editorial-surface {
+    @apply rounded-2xl border;
+    background-color: var(--surface-strong);
+    border-color: var(--line);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+  }
+
+  .editorial-kicker {
+    @apply text-[0.72rem] font-medium uppercase tracking-[0.18em];
+    color: var(--muted-fg);
+  }
+
+  .editorial-display {
+    font-family: "Instrument Serif", "Cormorant Garamond", serif;
+    font-size: clamp(2.3rem, 6vw, 4.2rem);
+    line-height: 0.95;
+  }
+
+  .editorial-headline {
+    font-size: clamp(1.85rem, 4vw, 3.3rem);
+    line-height: 0.95;
+  }
+
+  .editorial-divider {
+    border-color: var(--line);
+  }
+
+  .editorial-meta {
+    @apply text-xs tracking-wide;
+    color: var(--muted-fg);
+  }
+
+  .editorial-pill {
+    @apply inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium;
+    border-color: var(--line-strong);
+    color: var(--page-fg);
+    background-color: color-mix(in oklab, var(--surface-strong) 85%, white 15%);
+  }
+
+  .editorial-ticker {
+    @apply mt-4 flex items-center justify-between gap-4 rounded-lg px-3 py-2 text-xs;
+    background: #0d0d0d;
+    color: #f6f6f6;
+  }
+
+  .dark .editorial-ticker {
+    background: #191919;
+    color: #ece9e0;
+  }
 }

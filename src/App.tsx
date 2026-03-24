@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, type FormEvent, useRef, useMemo } fro
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper } from 'lucide-react';
+import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper, Menu, ArrowUpRight } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -157,6 +157,12 @@ const formatDateTime = (value?: string | null) => {
   }).format(parsed);
 };
 
+const estimateReadMinutes = (text?: string) => {
+  if (!text) return 1;
+  const words = text.trim().split(/\s+/).length;
+  return Math.max(1, Math.round(words / 180));
+};
+
 const CitationList = ({ citations, compact = false }: { citations?: Citation[]; compact?: boolean }) => {
   if (!citations?.length) return null;
 
@@ -292,6 +298,8 @@ const LOADING_MESSAGES = [
   "Finalizing visual narrative..."
 ];
 
+const EDITORIAL_CATEGORIES = ['World', 'Business', 'Tech', 'Policy', 'Culture'];
+
 // --- Main Component ---
 export default function App() {
   const [topic, setTopic] = useState('');
@@ -320,6 +328,7 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const timelineRef = useRef<HTMLDivElement>(null);
+  const accentColor = isDarkMode ? '#d33a3f' : '#b61f24';
 
   // Filtered Timeline
   const filteredTimeline = useMemo(() => {
@@ -338,6 +347,16 @@ export default function App() {
     
     return filtered;
   }, [data, filterPlayerId, filterArcId, filterImpact, sortOrder]);
+
+  const leadEvent = useMemo(() => {
+    if (!data) return null;
+    return filteredTimeline[0] ?? data.timeline[0] ?? null;
+  }, [data, filteredTimeline]);
+
+  const sideEvents = useMemo(() => {
+    if (!data) return [];
+    return (filteredTimeline.length > 1 ? filteredTimeline : data.timeline).slice(1, 3);
+  }, [data, filteredTimeline]);
 
   // Apply Filters to Graph
   useEffect(() => {
@@ -638,51 +657,39 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50 font-sans selection:bg-indigo-100 selection:text-indigo-900 dark:selection:bg-indigo-900 dark:selection:text-indigo-100 transition-colors duration-300">
+    <div className="editorial-shell selection:bg-red-200/60 selection:text-black dark:selection:bg-red-900/40 dark:selection:text-white">
       {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 transition-colors duration-300">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="bg-indigo-600 p-2 rounded-lg">
-                <TrendingUp className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Story Arc Tracker</h1>
-                {data?.fetched_at && (
-                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Last updated {formatDateTime(data.fetched_at)}
-                  </p>
-                )}
+      <header className="sticky top-0 z-20 px-3 py-4 md:px-6">
+        <div className="editorial-frame">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
+            <div className="flex items-center gap-3">
+              <span className="editorial-pill bg-black text-white dark:bg-white dark:text-black">No 5,810</span>
+              <div className="hidden items-center gap-3 text-xs text-[var(--muted-fg)] md:flex">
+                {EDITORIAL_CATEGORIES.map((category) => (
+                  <button key={category} className="hover:text-[var(--page-fg)] transition-colors">
+                    {category}
+                  </button>
+                ))}
               </div>
             </div>
-            
-            <div className="flex-1 max-w-3xl flex items-center gap-3">
-              <form onSubmit={handleSearchSubmit} className="flex-1 relative">
-                <div className="relative flex items-center w-full">
-                  <Search className="absolute left-3 w-5 h-5 text-slate-400 dark:text-slate-500" />
-                  <input
-                    type="text"
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    placeholder="e.g., The OpenAI board saga, Nvidia's AI dominance..."
-                    className="w-full pl-10 pr-24 py-3 bg-slate-100 dark:bg-slate-800 border-transparent dark:border-slate-700 rounded-full focus:bg-white dark:focus:bg-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900 transition-all outline-none text-sm dark:text-white dark:placeholder-slate-400"
-                    disabled={loading}
-                  />
-                  <button
-                    type="submit"
-                    disabled={loading || !topic.trim()}
-                    className="absolute right-1.5 px-4 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-                  >
-                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
-                  </button>
-                </div>
-              </form>
+
+            <div className="text-center">
+              <p className="text-4xl tracking-tight md:text-5xl editorial-display">The Viewisland</p>
+              {data?.fetched_at && (
+                <p className="editorial-meta mt-1">Updated {formatDateTime(data.fetched_at)}</p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              <button className="editorial-pill">
+                Subscribe for EUR2.50
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
               {data && (
                 <button
                   onClick={handleDownload}
                   disabled={isDownloading}
-                  className="px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-sm font-medium rounded-full hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-2 shadow-sm shrink-0"
+                  className="editorial-pill disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   Export
@@ -690,27 +697,61 @@ export default function App() {
               )}
               <button
                 onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-full hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm shrink-0 flex items-center justify-center"
+                className="editorial-pill"
                 aria-label="Toggle dark mode"
               >
-                {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+              <button className="editorial-pill" aria-label="Open menu">
+                <Menu className="h-4 w-4" />
               </button>
             </div>
+          </div>
+
+          <div className="mt-4 border-y py-2 editorial-divider">
+            <form onSubmit={handleSearchSubmit} className="relative">
+              <div className="relative flex items-center gap-2">
+                <Search className="absolute left-3 w-4 h-4 text-[var(--muted-fg)]" />
+                <input
+                  type="text"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="Search a narrative: OpenAI board saga, Nvidia AI dominance..."
+                  className="w-full rounded-full border bg-[var(--surface-strong)] py-3 pl-10 pr-28 text-sm outline-none transition-colors focus:border-[var(--line-strong)]"
+                  style={{ borderColor: 'var(--line)' }}
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !topic.trim()}
+                  className="absolute right-1.5 rounded-full bg-black px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Analyze'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="editorial-ticker">
+            <span className="italic">Start the day here</span>
+            <span className="truncate">AI policy shifts accelerate, earnings optimism rises, and strategic alliances redraw competitive narratives.</span>
+            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="mx-auto w-full max-w-[1200px] px-3 pb-10 pt-2 md:px-6">
         
         {/* Empty State */}
         {!data && !loading && !error && (
           <div className="flex flex-col items-center justify-center h-[60vh] text-center max-w-2xl mx-auto">
-            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mb-6">
-              <TrendingUp className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 border" style={{ backgroundColor: 'var(--surface-muted)', borderColor: 'var(--line)' }}>
+              <TrendingUp className="w-10 h-10 text-[var(--accent)]" />
             </div>
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4">Track the Narrative Arc</h2>
-            <p className="text-lg text-slate-600 dark:text-slate-400 mb-8">
+            <p className="editorial-kicker mb-3">Narrative analysis desk</p>
+            <h2 className="text-5xl editorial-headline mb-4">Track The Narrative Arc</h2>
+            <p className="text-lg mb-8 max-w-xl" style={{ color: 'var(--muted-fg)' }}>
               Enter a complex business story or topic above. We'll use AI to extract the timeline, map the key players, analyze sentiment shifts, and predict what happens next.
             </p>
             <div className="flex flex-wrap justify-center gap-3">
@@ -718,7 +759,7 @@ export default function App() {
                 <button
                   key={suggestion}
                   onClick={() => fetchData(suggestion)}
-                  className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-sm font-medium text-slate-700 dark:text-slate-300 hover:border-indigo-300 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:shadow-sm transition-all"
+                  className="editorial-pill transition-all hover:-translate-y-0.5"
                 >
                   {suggestion}
                 </button>
@@ -729,7 +770,7 @@ export default function App() {
 
         {/* Error State */}
         {error && (
-          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-xl flex items-start gap-3 text-red-800 dark:text-red-400">
+          <div className="editorial-surface p-4 flex items-start gap-3 text-red-800 dark:text-red-300 border-red-300/70 dark:border-red-900/70">
             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
             <div>
               <h3 className="font-semibold">Analysis Failed</h3>
@@ -741,8 +782,8 @@ export default function App() {
         {/* Loading State */}
         {loading && (
           <div className="flex flex-col items-center justify-center h-[60vh]">
-            <Loader2 className="w-12 h-12 text-indigo-600 dark:text-indigo-400 animate-spin mb-6" />
-            <p className="text-slate-700 dark:text-slate-300 font-medium text-lg animate-pulse">
+            <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin mb-6" />
+            <p className="font-medium text-lg animate-pulse" style={{ color: 'var(--muted-fg)' }}>
               {LOADING_MESSAGES[loadingMsgIdx]}
             </p>
           </div>
@@ -751,17 +792,88 @@ export default function App() {
         {/* Dashboard */}
         {data && !loading && (
           <div id="dashboard-content" className="space-y-8 animate-in fade-in duration-500">
+
+            {/* Editorial Lead Row */}
+            <section className="grid grid-cols-1 gap-4 xl:grid-cols-[2fr_1fr]">
+              <article className="editorial-surface overflow-hidden">
+                <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr]">
+                  <div className="p-6 md:p-8 flex flex-col gap-5">
+                    <p className="editorial-kicker">Frontline Narrative</p>
+                    <h2 className="editorial-headline">
+                      {(leadEvent?.title ?? topic) || 'Strategic shifts reshape the arc'}
+                    </h2>
+                    <p className="text-base leading-relaxed" style={{ color: 'var(--muted-fg)' }}>
+                      {leadEvent?.description ?? 'Run an analysis to produce a complete narrative timeline, key players, and emergent strategic arcs.'}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <span className="editorial-pill">{leadEvent?.date ?? 'Now'}</span>
+                      <span className="editorial-pill">{estimateReadMinutes(leadEvent?.description)} min read</span>
+                      {leadEvent?.impact && <span className="editorial-pill">Impact {leadEvent.impact}</span>}
+                    </div>
+                  </div>
+                  <div className="border-l editorial-divider p-6 md:p-8 flex flex-col gap-4" style={{ backgroundColor: 'var(--surface-muted)' }}>
+                    <div>
+                      <p className="editorial-kicker">Byline</p>
+                      <p className="text-lg">{data.players[0]?.name ?? 'Editorial desk'}</p>
+                      <p className="editorial-meta mt-1">{formatDateTime(data.fetched_at ?? undefined)}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="editorial-surface p-3">
+                        <p className="editorial-kicker">Events</p>
+                        <p className="text-3xl leading-none mt-2">{data.timeline.length}</p>
+                      </div>
+                      <div className="editorial-surface p-3">
+                        <p className="editorial-kicker">Players</p>
+                        <p className="text-3xl leading-none mt-2">{data.players.length}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm" style={{ color: 'var(--muted-fg)' }}>
+                      The analysis below remains fully interactive with filters, graph exploration, and deep-dive profiles.
+                    </p>
+                  </div>
+                </div>
+              </article>
+
+              <aside className="space-y-4">
+                {sideEvents.map((event) => (
+                  <article key={event.id} className="editorial-surface p-5">
+                    <p className="editorial-kicker">Supporting Story</p>
+                    <h3 className="mt-2 text-3xl leading-none">{event.title}</h3>
+                    <p className="mt-3 text-sm leading-relaxed" style={{ color: 'var(--muted-fg)' }}>{event.description}</p>
+                    <div className="mt-4 flex items-center justify-between text-xs" style={{ color: 'var(--muted-fg)' }}>
+                      <span>{event.date}</span>
+                      <span>{estimateReadMinutes(event.description)} min read</span>
+                    </div>
+                  </article>
+                ))}
+
+                <article className="editorial-surface p-5">
+                  <p className="editorial-kicker">Desk Snapshot</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+                      <p className="text-xs" style={{ color: 'var(--muted-fg)' }}>Arcs</p>
+                      <p className="text-2xl mt-2 leading-none">{data.arcs.length}</p>
+                    </div>
+                    <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+                      <p className="text-xs" style={{ color: 'var(--muted-fg)' }}>Insights</p>
+                      <p className="text-2xl mt-2 leading-none">{data.insights.length}</p>
+                    </div>
+                  </div>
+                </article>
+              </aside>
+            </section>
             
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-4 flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-medium text-sm mr-2">
-                <Filter className="w-4 h-4" /> Filters:
+            <div className="editorial-surface p-4 flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2 text-[var(--muted-fg)] font-medium text-sm mr-2">
+                <Filter className="w-4 h-4" /> Desk Filters:
               </div>
               
               <select 
                 value={filterPlayerId} 
                 onChange={(e) => setFilterPlayerId(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2"
+                className="rounded-lg border p-2 text-sm"
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
               >
                 <option value="all">All Players (Focus Mode)</option>
                 {data.players.map(p => (
@@ -772,7 +884,8 @@ export default function App() {
               <select 
                 value={filterArcId} 
                 onChange={(e) => setFilterArcId(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2"
+                className="rounded-lg border p-2 text-sm"
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
               >
                 <option value="all">All Arcs</option>
                 {data.arcs.map(a => (
@@ -783,7 +896,8 @@ export default function App() {
               <select 
                 value={filterImpact} 
                 onChange={(e) => setFilterImpact(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2"
+                className="rounded-lg border p-2 text-sm"
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
               >
                 <option value="all">All Impacts</option>
                 <option value="high">High Impact</option>
@@ -794,7 +908,8 @@ export default function App() {
               <select 
                 value={highlightRelType} 
                 onChange={(e) => setHighlightRelType(e.target.value as any)}
-                className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2"
+                className="rounded-lg border p-2 text-sm"
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
               >
                 <option value="all">All Relationships</option>
                 <option value="conflict">Conflicts Only</option>
@@ -810,7 +925,8 @@ export default function App() {
                     setHighlightRelType('all');
                     setSelectedEventId(null);
                   }}
-                  className="ml-auto text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium"
+                  className="ml-auto text-sm font-medium"
+                  style={{ color: 'var(--accent)' }}
                 >
                   Clear Filters
                 </button>
@@ -821,21 +937,22 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               
               {/* Timeline */}
-              <div className="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 flex flex-col h-[500px]">
+              <div className="lg:col-span-1 editorial-surface p-6 flex flex-col h-[500px]">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Chronological Timeline</h2>
+                    <Clock className="w-5 h-5 text-[var(--accent)]" />
+                    <h2 className="text-3xl leading-none">Chronological Timeline</h2>
                   </div>
                   <div className="flex items-center gap-3">
                     <button 
                       onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-                      className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center gap-1"
+                      className="text-xs font-medium flex items-center gap-1"
+                      style={{ color: 'var(--accent)' }}
                     >
                       {sortOrder === 'asc' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                       {sortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
                     </button>
-                    <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:inline">Click event to highlight map</span>
+                    <span className="text-xs hidden sm:inline" style={{ color: 'var(--muted-fg)' }}>Click event to highlight map</span>
                   </div>
                 </div>
                 <div ref={timelineRef} className="flex-1 overflow-y-auto pr-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
@@ -844,9 +961,14 @@ export default function App() {
                       key={idx} 
                       onClick={() => handleTimelineClick(event)}
                       className={cn(
-                        "relative pl-6 pb-6 last:pb-0 border-l-2 border-slate-100 dark:border-slate-800 last:border-transparent cursor-pointer transition-colors rounded-r-xl",
-                        (activeEventIdx === idx || selectedEventId === event.id) ? "bg-indigo-50/50 dark:bg-indigo-900/20 -ml-2 pl-8" : "hover:bg-slate-50 dark:hover:bg-slate-800/50 -ml-2 pl-8"
+                        "relative pl-6 pb-6 last:pb-0 border-l-2 last:border-transparent cursor-pointer transition-colors rounded-r-xl -ml-2 pl-8",
+                        (activeEventIdx === idx || selectedEventId === event.id) ? "ring-1" : "hover:opacity-85"
                       )}
+                      style={{
+                        borderLeftColor: 'var(--line)',
+                        backgroundColor: (activeEventIdx === idx || selectedEventId === event.id) ? 'var(--surface-muted)' : 'transparent',
+                        borderColor: (activeEventIdx === idx || selectedEventId === event.id) ? 'var(--line)' : 'transparent'
+                      }}
                     >
                       <div className={cn(
                         "absolute -left-[11px] top-1 w-5 h-5 rounded-full border-4 border-white dark:border-slate-900 transition-transform",
@@ -855,14 +977,14 @@ export default function App() {
                         event.sentiment === 'negative' ? "bg-red-500" : "bg-slate-400 dark:bg-slate-500"
                       )} />
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400">{event.date}</div>
+                        <div className="text-xs font-bold" style={{ color: 'var(--accent)' }}>{event.date}</div>
                         <div className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-full">
                           <Tag className="w-3 h-3" />
                           Impact: {event.impact}
                         </div>
                       </div>
-                      <div className="font-semibold text-slate-900 dark:text-white mb-1">{event.title}</div>
-                      <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-3">{event.description}</div>
+                      <div className="font-semibold mb-1">{event.title}</div>
+                      <div className="text-sm leading-relaxed mb-3" style={{ color: 'var(--muted-fg)' }}>{event.description}</div>
                       <CitationList citations={event.citations} compact />
                     </div>
                   ))}
@@ -870,13 +992,13 @@ export default function App() {
               </div>
 
               {/* Sentiment Chart */}
-              <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 flex flex-col h-[500px]">
+              <div className="lg:col-span-2 editorial-surface p-6 flex flex-col h-[500px]">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Sentiment Shifts</h2>
+                    <TrendingUp className="w-5 h-5 text-[var(--accent)]" />
+                    <h2 className="text-3xl leading-none">Sentiment Shifts</h2>
                   </div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Hover to locate on timeline</span>
+                  <span className="text-xs" style={{ color: 'var(--muted-fg)' }}>Hover to locate on timeline</span>
                 </div>
                 <div className="flex-1 min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
@@ -901,14 +1023,14 @@ export default function App() {
                         dataKey="date" 
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fontSize: 12, fill: isDarkMode ? '#94a3b8' : '#64748b' }}
+                        tick={{ fontSize: 12, fill: isDarkMode ? '#b8b1a4' : '#696356' }}
                         dy={10}
                       />
                       <YAxis 
                         domain={[-100, 100]} 
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fontSize: 12, fill: isDarkMode ? '#94a3b8' : '#64748b' }}
+                        tick={{ fontSize: 12, fill: isDarkMode ? '#b8b1a4' : '#696356' }}
                       />
                       <RechartsTooltip 
                         contentStyle={{ 
@@ -925,10 +1047,10 @@ export default function App() {
                         name="Sentiment"
                         type="monotone" 
                         dataKey="sentimentScore" 
-                        stroke="#4f46e5" 
+                        stroke={accentColor}
                         strokeWidth={3}
-                        dot={{ r: 4, fill: '#4f46e5', strokeWidth: 2, stroke: isDarkMode ? '#0f172a' : '#ffffff' }}
-                        activeDot={{ r: 6, fill: '#4f46e5', stroke: isDarkMode ? '#0f172a' : '#ffffff', strokeWidth: 2 }}
+                        dot={{ r: 4, fill: accentColor, strokeWidth: 2, stroke: isDarkMode ? '#1a1917' : '#ffffff' }}
+                        activeDot={{ r: 6, fill: accentColor, stroke: isDarkMode ? '#1a1917' : '#ffffff', strokeWidth: 2 }}
                         animationDuration={1500}
                       />
                     </LineChart>
@@ -938,10 +1060,10 @@ export default function App() {
             </div>
 
             {/* Middle Row: Key Players Map */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 h-[600px] flex flex-col">
+            <div className="editorial-surface p-6 h-[600px] flex flex-col">
               <div className="flex items-center gap-2 mb-4">
-                <Users className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Key Players & Relationships</h2>
+                <Users className="w-5 h-5 text-[var(--accent)]" />
+                <h2 className="text-3xl leading-none">Key Players & Relationships</h2>
               </div>
               <div className="flex-1 border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-50/50 dark:bg-slate-950/50">
                 <ReactFlow
@@ -962,7 +1084,7 @@ export default function App() {
                   <MiniMap nodeStrokeWidth={3} zoomable pannable />
                 </ReactFlow>
               </div>
-              <div className="flex items-center gap-6 mt-4 text-sm text-slate-600 dark:text-slate-400 justify-center">
+              <div className="flex items-center gap-6 mt-4 text-sm justify-center" style={{ color: 'var(--muted-fg)' }}>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Company</div>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> Person/Other</div>
                 <div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-red-500"></div> Conflict</div>
@@ -975,10 +1097,10 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               
               {/* Story Arcs */}
-              <div className="md:col-span-2 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+              <div className="md:col-span-2 editorial-surface p-6">
                 <div className="flex items-center gap-2 mb-6">
-                  <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Narrative Arcs</h2>
+                  <TrendingUp className="w-5 h-5 text-[var(--accent)]" />
+                  <h2 className="text-3xl leading-none">Narrative Arcs</h2>
                 </div>
                 <div className="space-y-4">
                   {data.arcs.map((arc, idx) => (
@@ -987,8 +1109,12 @@ export default function App() {
                       onClick={() => setFilterArcId(filterArcId === arc.id ? 'all' : arc.id)}
                       className={cn(
                         "p-4 border rounded-xl hover:shadow-md transition-all cursor-pointer",
-                        filterArcId === arc.id ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm" : "border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50"
+                            filterArcId === arc.id ? "shadow-sm" : ""
                       )}
+                          style={{
+                            borderColor: filterArcId === arc.id ? 'var(--line-strong)' : 'var(--line)',
+                            backgroundColor: filterArcId === arc.id ? 'var(--surface-muted)' : 'var(--surface)'
+                          }}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="font-bold text-slate-900 dark:text-white text-base">{arc.title}</h3>
@@ -1020,10 +1146,10 @@ export default function App() {
               </div>
 
               {/* Insights */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+              <div className="editorial-surface p-6">
                 <div className="flex items-center gap-2 mb-6">
-                  <Eye className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Key Insights</h2>
+                  <Eye className="w-5 h-5 text-[var(--accent)]" />
+                  <h2 className="text-3xl leading-none">Key Insights</h2>
                 </div>
                 <div className="space-y-4">
                   {data.insights.map((insight, idx) => {
@@ -1061,8 +1187,8 @@ export default function App() {
 
         {/* Deep Dive Modal */}
         {deepDivePlayer && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] border border-slate-200 dark:border-slate-800">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="editorial-surface w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh]">
               <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className={cn("w-10 h-10 rounded-full flex items-center justify-center text-white font-bold", deepDivePlayer.type === 'company' ? 'bg-blue-500' : 'bg-emerald-500')}>
@@ -1080,8 +1206,8 @@ export default function App() {
               <div className="p-6 overflow-y-auto">
                 {loadingDeepDive ? (
                   <div className="flex flex-col items-center justify-center py-12">
-                    <Loader2 className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin mb-4" />
-                    <p className="text-sm text-slate-500 dark:text-slate-400">Generating deep dive profile...</p>
+                    <Loader2 className="w-8 h-8 animate-spin mb-4" style={{ color: 'var(--accent)' }} />
+                    <p className="text-sm" style={{ color: 'var(--muted-fg)' }}>Generating deep dive profile...</p>
                   </div>
                 ) : deepDiveContent ? (
                   <div className="space-y-5 text-sm text-slate-700 dark:text-slate-300">
