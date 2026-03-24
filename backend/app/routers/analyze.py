@@ -4,6 +4,11 @@ from app.constants import AnalyzeRequest
 from app.schemas import StoryData
 from app.services.ai_orchestration import analyze_story
 from app.services.news_fetcher import fetch_news_context
+from app.services.source_validator import (
+    SourcePolicyViolationError,
+    validate_story_sources_or_raise,
+    violations_to_response_payload,
+)
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -40,11 +45,15 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
             )
 
         story_data = await analyze_story(request.topic, news_context["prompt_context"])
-        return story_data.model_copy(update={
+        response_payload = story_data.model_copy(update={
             "news_context": news_context["items"],
             "fetched_at": news_context["fetched_at"],
         })
+        validate_story_sources_or_raise(response_payload)
+        return response_payload
 
+    except SourcePolicyViolationError as e:
+        raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations))
     except HTTPException:
         raise
     except Exception as e:
