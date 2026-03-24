@@ -5,6 +5,11 @@ from fastapi import APIRouter, HTTPException
 from app.constants import PlayerProfileRequest
 from app.schemas import PlayerProfile
 from app.services.ai_orchestration import generate_player_profile
+from app.services.source_validator import (
+    SourcePolicyViolationError,
+    validate_profile_sources_or_raise,
+    violations_to_response_payload,
+)
 
 router = APIRouter(prefix="/api", tags=["profiles"])
 
@@ -47,8 +52,11 @@ async def get_player_profile(request: PlayerProfileRequest) -> PlayerProfile:
             relationship_context=relationship_context,
         )
 
+        validate_profile_sources_or_raise(profile)
         return profile
 
+    except SourcePolicyViolationError as e:
+        raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations))
     except HTTPException:
         raise
     except Exception as e:
