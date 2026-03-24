@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Enums ---
@@ -15,11 +15,6 @@ class SentimentType(str, Enum):
     POSITIVE = "positive"
     NEGATIVE = "negative"
     NEUTRAL = "neutral"
-
-
-class NewsSource(str, Enum):
-    ET = "ET"
-    TOI = "TOI"
 
 
 class PlayerType(str, Enum):
@@ -62,9 +57,20 @@ class NewsItem(BaseModel):
 
     title: str
     url: str
-    domain: str
-    source: NewsSource
+    domain: str | None = None
+    source: str = Field(..., min_length=1, description="Publisher/source name or normalized code")
+    provider: str = Field(..., min_length=1, description="Ingestion provider/feed name (e.g., gnews, gdelt)")
     published_at: str
+
+    @field_validator("source", "provider", mode="before")
+    @classmethod
+    def _normalize_source_fields(cls, value: str) -> str:
+        if not isinstance(value, str):
+            raise TypeError("must be a string")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be empty")
+        return normalized
 
 
 # --- Story Arc Schemas ---

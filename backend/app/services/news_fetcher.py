@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
 import aiohttp
 
-from app.schemas import NewsItem, NewsSource
+from app.schemas import NewsItem
 from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
 
 
@@ -25,7 +25,8 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
     fetched_at = datetime.now(timezone.utc)
 
     try:
-        retrieval_queries = build_retrieval_queries(query, provider="gnews")
+        provider = "gnews"
+        retrieval_queries = build_retrieval_queries(query, provider=provider)
         encoded_query = quote_plus(retrieval_queries["bm25"]["query"])
         url = f"https://www.rss2json.com/api.json?rss_url=https://news.google.com/rss/search?q={encoded_query}"
 
@@ -41,7 +42,7 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
 
                 news_items = []
                 for item in items:
-                    news_item = _to_news_item(item)
+                    news_item = _to_news_item(item, provider=provider)
                     if news_item is not None:
                         news_items.append(news_item)
 
@@ -116,7 +117,7 @@ def validate_retrieval_filter(retrieval_payload: dict[str, Any], provider: str =
         raise ValueError("Mandatory retrieval filter missing for configured source policy.")
 
 
-def _to_news_item(item: dict[str, Any]) -> NewsItem | None:
+def _to_news_item(item: dict[str, Any], provider: str) -> NewsItem | None:
     original_link = item.get("link", "")
     normalized_link, hostname, reject_reason = _normalize_and_validate_url(original_link)
     if reject_reason:
@@ -149,7 +150,8 @@ def _to_news_item(item: dict[str, Any]) -> NewsItem | None:
         title=item.get("title", ""),
         url=normalized_link or "",
         domain=canonical_domain,
-        source=NewsSource(mapped_source),
+        source=mapped_source,
+        provider=provider,
         published_at=item.get("pubDate", ""),
     )
 
