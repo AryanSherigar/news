@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 DEFAULT_INPUT_JSONL = "data/processed/chunks_all_timelines.jsonl"
@@ -89,10 +90,21 @@ def setup_logging(level: str) -> None:
     logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO), format="%(asctime)s | %(levelname)s | %(message)s")
 
 
+def normalize_pinecone_index_host(raw_host: str) -> str:
+    candidate = raw_host.strip()
+    if not candidate:
+        return ""
+    if "://" in candidate:
+        parsed = urlparse(candidate)
+        candidate = parsed.netloc or parsed.path
+    return candidate.strip().strip("/")
+
+
 def build_config(args: argparse.Namespace) -> Config:
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
     pinecone_api_key = os.getenv("PINECONE_API_KEY", "").strip()
-    pinecone_index_host = os.getenv("PINECONE_INDEX_HOST", "").strip()
+    raw_pinecone_index_host = os.getenv("PINECONE_INDEX_HOST", "")
+    pinecone_index_host = normalize_pinecone_index_host(raw_pinecone_index_host)
 
     if not openai_api_key:
         raise ValueError("Missing OPENAI_API_KEY environment variable")
@@ -100,6 +112,8 @@ def build_config(args: argparse.Namespace) -> Config:
         raise ValueError("Missing PINECONE_API_KEY environment variable")
     if not pinecone_index_host:
         raise ValueError("Missing PINECONE_INDEX_HOST environment variable")
+    if raw_pinecone_index_host.strip() != pinecone_index_host:
+        logging.info("Normalized PINECONE_INDEX_HOST to host-only value: %s", pinecone_index_host)
 
     return Config(
         input_jsonl=Path(args.input_jsonl),
