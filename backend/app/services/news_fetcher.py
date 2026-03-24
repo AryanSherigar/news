@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
 import aiohttp
 
@@ -16,10 +16,14 @@ ALLOWED_SOURCE_DOMAINS = {
     "timesofindia.indiatimes.com",
 }
 
+ALLOWED_SOURCE_CODES = {"ET", "TOI"}
+
 SOURCE_ALIASES = {
     "economictimes.indiatimes.com": "ET",
     "timesofindia.indiatimes.com": "TOI",
 }
+
+MANDATORY_SOURCE_FILTER_CLAUSE = "(site:economictimes.indiatimes.com OR site:timesofindia.indiatimes.com)"
 
 TRACKING_QUERY_PARAMS = {
     "gclid",
@@ -47,18 +51,19 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
     fetched_at = datetime.now(timezone.utc)
 
     try:
-        encoded_query = query.replace(" ", "+")
+        retrieval_queries = build_retrieval_queries(query)
+        encoded_query = quote_plus(retrieval_queries["bm25"]["query"])
         url = f"https://www.rss2json.com/api.json?rss_url=https://news.google.com/rss/search?q={encoded_query}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
                 if response.status != 200:
-                    return _fallback_context(fetched_at)
+                    return _empty_context(fetched_at, reason="upstream_error")
 
                 data = await response.json()
                 items = data.get("items", [])[:max_results]
                 if not items:
-                    return _fallback_context(fetched_at)
+                    return _empty_context(fetched_at, reason="no_results")
 
                 news_items = []
                 for item in items:
@@ -67,18 +72,72 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
                         news_items.append(news_item)
 
                 if not news_items:
-                    logger.warning("All fetched items were rejected by URL validation", extra={"query": query})
-                    return _fallback_context(fetched_at)
+                    logger.warning("No documents remained after mandatory source filtering", extra={"query": query})
+                    return _empty_context(fetched_at, reason="no_documents_after_mandatory_filter")
 
                 return {
                     "prompt_context": json.dumps([item.model_dump() for item in news_items], ensure_ascii=False, indent=2),
                     "items": [item.model_dump() for item in news_items],
                     "fetched_at": fetched_at.isoformat(),
+                    "empty_context": False,
+                    "empty_context_reason": None,
                 }
 
     except Exception as e:
         print(f"Error fetching news: {e}")
-        return _fallback_context(fetched_at)
+        return _empty_context(fetched_at, reason="fetch_exception")
+
+
+def build_retrieval_queries(user_query: str) -> dict[str, dict[str, Any]]:
+    """Build retrieval query payloads with mandatory source filtering for each strategy."""
+    trimmed_query = user_query.strip()
+    if not trimmed_query:
+        raise ValueError("Query cannot be empty")
+
+    retrieval_queries = {
+        "metadata": {
+            "query": trimmed_query,
+            "filters": {
+                "domain_in": sorted(ALLOWED_SOURCE_DOMAINS),
+                "source_in": sorted(ALLOWED_SOURCE_CODES),
+            },
+        },
+        "vector": {
+            "query": f"{trimmed_query} {MANDATORY_SOURCE_FILTER_CLAUSE}",
+            "filters": {
+                "domain_in": sorted(ALLOWED_SOURCE_DOMAINS),
+                "source_in": sorted(ALLOWED_SOURCE_CODES),
+            },
+        },
+        "bm25": {
+            "query": f"{trimmed_query} {MANDATORY_SOURCE_FILTER_CLAUSE}",
+            "filters": {
+                "domain_in": sorted(ALLOWED_SOURCE_DOMAINS),
+                "source_in": sorted(ALLOWED_SOURCE_CODES),
+            },
+        },
+    }
+
+    for payload in retrieval_queries.values():
+        validate_retrieval_filter(payload)
+
+    return retrieval_queries
+
+
+def validate_retrieval_filter(retrieval_payload: dict[str, Any]) -> None:
+    """Validate that every retrieval payload contains the mandatory source filter."""
+    filters = retrieval_payload.get("filters", {})
+    domains = set(filters.get("domain_in", []))
+    sources = set(filters.get("source_in", []))
+
+    has_domain_filter = domains == ALLOWED_SOURCE_DOMAINS
+    has_source_filter = sources == ALLOWED_SOURCE_CODES
+    if not (has_domain_filter or has_source_filter):
+        raise ValueError(
+            "Mandatory retrieval filter missing: require domain IN "
+            "('economictimes.indiatimes.com', 'timesofindia.indiatimes.com') "
+            "or source IN ('ET', 'TOI')."
+        )
 
 
 def _to_news_item(item: dict[str, Any]) -> NewsItem | None:
@@ -151,9 +210,11 @@ def _normalize_and_validate_url(raw_url: str) -> tuple[str | None, str | None, s
     return normalized_url, hostname, None
 
 
-def _fallback_context(fetched_at: datetime) -> dict[str, Any]:
+def _empty_context(fetched_at: datetime, reason: str) -> dict[str, Any]:
     return {
         "prompt_context": json.dumps([item.model_dump() for item in NO_NEWS_CONTEXT], ensure_ascii=False, indent=2),
         "items": [item.model_dump() for item in NO_NEWS_CONTEXT],
         "fetched_at": fetched_at.isoformat(),
+        "empty_context": True,
+        "empty_context_reason": reason,
     }
