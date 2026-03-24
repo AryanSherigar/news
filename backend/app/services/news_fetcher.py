@@ -7,36 +7,10 @@ from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 import aiohttp
 
 from app.schemas import NewsItem, NewsSource
+from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
 
 
 logger = logging.getLogger(__name__)
-
-ALLOWED_SOURCE_DOMAINS = {
-    "economictimes.indiatimes.com",
-    "timesofindia.indiatimes.com",
-}
-
-ALLOWED_SOURCE_CODES = {"ET", "TOI"}
-
-SOURCE_ALIASES = {
-    "economictimes.indiatimes.com": "ET",
-    "timesofindia.indiatimes.com": "TOI",
-}
-
-MANDATORY_SOURCE_FILTER_CLAUSE = "(site:economictimes.indiatimes.com OR site:timesofindia.indiatimes.com)"
-
-TRACKING_QUERY_PARAMS = {
-    "gclid",
-    "dclid",
-    "fbclid",
-    "igshid",
-    "mc_cid",
-    "mc_eid",
-    "mkt_tok",
-    "ref",
-    "spm",
-    "yclid",
-}
 
 NO_NEWS_CONTEXT: list[NewsItem] = []
 
@@ -51,7 +25,7 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
     fetched_at = datetime.now(timezone.utc)
 
     try:
-        retrieval_queries = build_retrieval_queries(query)
+        retrieval_queries = build_retrieval_queries(query, provider="gnews")
         encoded_query = quote_plus(retrieval_queries["bm25"]["query"])
         url = f"https://www.rss2json.com/api.json?rss_url=https://news.google.com/rss/search?q={encoded_query}"
 
@@ -72,7 +46,7 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
                         news_items.append(news_item)
 
                 if not news_items:
-                    logger.warning("No documents remained after mandatory source filtering", extra={"query": query})
+                    logger.warning("No documents remained after source-policy filtering", extra={"query": query})
                     return _empty_context(fetched_at, reason="no_documents_after_mandatory_filter")
 
                 return {
@@ -88,56 +62,58 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
         return _empty_context(fetched_at, reason="fetch_exception")
 
 
-def build_retrieval_queries(user_query: str) -> dict[str, dict[str, Any]]:
-    """Build retrieval query payloads with mandatory source filtering for each strategy."""
+def build_retrieval_queries(user_query: str, provider: str = "gnews") -> dict[str, dict[str, Any]]:
+    """Build retrieval query payloads from source-policy settings."""
     trimmed_query = user_query.strip()
     if not trimmed_query:
         raise ValueError("Query cannot be empty")
 
+    policy = get_source_policy()
+    filters = policy.build_filters(provider)
+
+    query_suffix = policy.get_query_suffix(provider)
+    scoped_query = trimmed_query if not query_suffix else f"{trimmed_query} {query_suffix}"
+
     retrieval_queries = {
         "metadata": {
-            "query": trimmed_query,
-            "filters": {
-                "domain_in": sorted(ALLOWED_SOURCE_DOMAINS),
-                "source_in": sorted(ALLOWED_SOURCE_CODES),
-            },
+            "query": scoped_query,
+            "filters": filters,
         },
         "vector": {
-            "query": f"{trimmed_query} {MANDATORY_SOURCE_FILTER_CLAUSE}",
-            "filters": {
-                "domain_in": sorted(ALLOWED_SOURCE_DOMAINS),
-                "source_in": sorted(ALLOWED_SOURCE_CODES),
-            },
+            "query": scoped_query,
+            "filters": filters,
         },
         "bm25": {
-            "query": f"{trimmed_query} {MANDATORY_SOURCE_FILTER_CLAUSE}",
-            "filters": {
-                "domain_in": sorted(ALLOWED_SOURCE_DOMAINS),
-                "source_in": sorted(ALLOWED_SOURCE_CODES),
-            },
+            "query": scoped_query,
+            "filters": filters,
         },
     }
 
     for payload in retrieval_queries.values():
-        validate_retrieval_filter(payload)
+        validate_retrieval_filter(payload, provider=provider)
 
     return retrieval_queries
 
 
-def validate_retrieval_filter(retrieval_payload: dict[str, Any]) -> None:
-    """Validate that every retrieval payload contains the mandatory source filter."""
+def validate_retrieval_filter(retrieval_payload: dict[str, Any], provider: str = "gnews") -> None:
+    """Validate retrieval payload against configured source policy."""
+    policy = get_source_policy()
+    if not policy.strict_allowlist_validation:
+        return
+
     filters = retrieval_payload.get("filters", {})
     domains = set(filters.get("domain_in", []))
     sources = set(filters.get("source_in", []))
 
-    has_domain_filter = domains == ALLOWED_SOURCE_DOMAINS
-    has_source_filter = sources == ALLOWED_SOURCE_CODES
-    if not (has_domain_filter or has_source_filter):
-        raise ValueError(
-            "Mandatory retrieval filter missing: require domain IN "
-            "('economictimes.indiatimes.com', 'timesofindia.indiatimes.com') "
-            "or source IN ('ET', 'TOI')."
-        )
+    expected_filters = policy.build_filters(provider)
+    expected_domains = set(expected_filters.get("domain_in", []))
+    expected_sources = set(expected_filters.get("source_in", []))
+
+    has_required_domain_filter = (not expected_domains) or domains == expected_domains
+    has_required_source_filter = (not expected_sources) or sources == expected_sources
+
+    if not (has_required_domain_filter and has_required_source_filter):
+        raise ValueError("Mandatory retrieval filter missing for configured source policy.")
 
 
 def _to_news_item(item: dict[str, Any]) -> NewsItem | None:
@@ -160,7 +136,8 @@ def _to_news_item(item: dict[str, Any]) -> NewsItem | None:
         logger.info("Rejected news item URL", extra={"reason": "missing_canonical_domain", "url": original_link})
         return None
 
-    mapped_source = SOURCE_ALIASES.get(canonical_domain)
+    policy = get_source_policy()
+    mapped_source = policy.source_aliases.get(canonical_domain)
     if not mapped_source:
         logger.info(
             "Rejected news item URL",
@@ -186,7 +163,8 @@ def _normalize_and_validate_url(raw_url: str) -> tuple[str | None, str | None, s
     if not hostname:
         return None, None, "missing_hostname"
 
-    if hostname not in ALLOWED_SOURCE_DOMAINS:
+    policy = get_source_policy()
+    if policy.strict_allowlist_validation and policy.allowed_domains and hostname not in policy.allowed_domains:
         return None, hostname, "disallowed_domain"
 
     filtered_query = []

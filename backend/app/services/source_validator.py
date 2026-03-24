@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from app.schemas import Citation, PlayerProfile, StoryData
-from app.services.news_fetcher import ALLOWED_SOURCE_DOMAINS, TRACKING_QUERY_PARAMS
+from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
 
 
 @dataclass
@@ -19,7 +19,7 @@ class CitationViolation:
 
 
 class SourcePolicyViolationError(ValueError):
-    """Raised when model output citations violate ET/TOI source policy."""
+    """Raised when model output citations violate source policy."""
 
     def __init__(self, violations: list[CitationViolation]):
         self.violations = violations
@@ -27,7 +27,7 @@ class SourcePolicyViolationError(ValueError):
 
 
 def canonicalize_and_validate_source_url(raw_url: str) -> tuple[str | None, str | None, str | None]:
-    """Canonicalize citation URL and verify it belongs to the ET/TOI allowlist."""
+    """Canonicalize citation URL and verify it belongs to the configured allowlist."""
     if not raw_url:
         return None, None, "missing_url"
 
@@ -43,7 +43,8 @@ def canonicalize_and_validate_source_url(raw_url: str) -> tuple[str | None, str 
     if not hostname:
         return None, None, "missing_hostname"
 
-    if hostname not in ALLOWED_SOURCE_DOMAINS:
+    policy = get_source_policy()
+    if policy.strict_allowlist_validation and policy.allowed_domains and hostname not in policy.allowed_domains:
         return None, hostname, "disallowed_domain"
 
     filtered_query: list[tuple[str, str]] = []
@@ -68,7 +69,7 @@ def canonicalize_and_validate_source_url(raw_url: str) -> tuple[str | None, str 
 
 
 def validate_story_sources_or_raise(story: StoryData) -> StoryData:
-    """Validate timeline/insight citations against ET/TOI source policy."""
+    """Validate timeline/insight citations against configured source policy."""
     violations: list[CitationViolation] = []
 
     for timeline_index, event in enumerate(story.timeline):
@@ -92,7 +93,7 @@ def validate_story_sources_or_raise(story: StoryData) -> StoryData:
 
 
 def validate_profile_sources_or_raise(profile: PlayerProfile) -> PlayerProfile:
-    """Validate all profile citation fields against ET/TOI source policy."""
+    """Validate all profile citation fields against configured source policy."""
     violations: list[CitationViolation] = []
 
     _validate_citations_in_place(profile.citations, "profile.citations", violations)
@@ -148,7 +149,7 @@ def _validate_citations_in_place(
 def violations_to_response_payload(violations: list[CitationViolation]) -> dict[str, Any]:
     """Return a JSON-serializable payload for API error responses."""
     return {
-        "message": "Model output included citations outside ET/TOI allowlist.",
+        "message": "Model output included citations outside configured allowlist.",
         "violations": [
             {
                 "location": violation.location,
