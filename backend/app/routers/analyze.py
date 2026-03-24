@@ -53,7 +53,7 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
         return response_payload
 
     except SourcePolicyViolationError as e:
-        raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations))
+        raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations, provider="gnews"))
     except HTTPException:
         raise
     except Exception as e:

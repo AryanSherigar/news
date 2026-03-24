@@ -56,7 +56,7 @@ async def get_player_profile(request: PlayerProfileRequest) -> PlayerProfile:
         return profile
 
     except SourcePolicyViolationError as e:
-        raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations))
+        raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations, provider="gnews"))
     except HTTPException:
         raise
     except Exception as e:
