@@ -1,44 +1,92 @@
 budget_2026:
-  keywords:
-    - "Union Budget 2026"
-    - "Budget 2026"
-    - "Nirmala Sitharaman"
-    - "tax slab"
-    - "fiscal deficit"
-    - "capex"
-    - "budget speech"
-    - "budget session"
-  query_templates:
-    - "site:<domain> <keyword> <date_hint>"
-    - "site:<domain> <keyword> analysis"
-    - "site:<domain> <keyword> live updates"
-  max_urls_per_query: 10
+  start_date: "2026-01-15"
+  end_date: "2026-03-15"
+  source_strategy: "Guardian primary, GDELT event backfill, optional GNews/Mediastack enrichment"
+  providers:
+    - name: guardian
+      page_size: 50
+      max_pages: 3
+      queries:
+        - "Union Budget 2026"
+        - "Budget 2026 tax slab"
+        - "Nirmala Sitharaman budget speech"
+        - "fiscal deficit capex"
+    - name: gdelt
+      max_records: 80
+      queries:
+        - "Union Budget 2026 OR Nirmala Sitharaman"
+        - "India budget tax slab OR fiscal deficit"
+    - name: gnews
+      enabled_if_env: GNEWS_API_KEY
+      max_records: 40
+      queries:
+        - "Union Budget 2026"
+        - "Budget 2026 India"
+    - name: mediastack
+      enabled_if_env: MEDIASTACK_API_KEY
+      max_records: 40
+      queries:
+        - "Union Budget 2026"
+        - "India fiscal deficit 2026"
 
 us_iran_conflict:
-  keywords:
-    - "US Iran tensions"
-    - "Iran retaliation"
-    - "US strikes"
-    - "IRGC"
-    - "sanctions on Iran"
-    - "Persian Gulf escalation"
-    - "Middle East escalation US Iran"
-  query_templates:
-    - "site:<domain> <keyword> <date_hint>"
-    - "site:<domain> <keyword> analysis"
-    - "site:<domain> <keyword> live updates"
-  max_urls_per_query: 10
+  start_date: "2025-10-01"
+  end_date: "2026-03-24"
+  source_strategy: "GDELT primary for event coverage, Guardian for narrative context, optional GNews/Mediastack"
+  providers:
+    - name: gdelt
+      max_records: 120
+      queries:
+        - "US Iran tensions OR IRGC"
+        - "US strikes Iran retaliation"
+        - "Persian Gulf escalation sanctions"
+    - name: guardian
+      page_size: 40
+      max_pages: 2
+      queries:
+        - "US Iran tensions"
+        - "IRGC sanctions"
+        - "Persian Gulf escalation"
+    - name: gnews
+      enabled_if_env: GNEWS_API_KEY
+      max_records: 35
+      queries:
+        - "US Iran tensions"
+        - "Iran retaliation US"
+    - name: mediastack
+      enabled_if_env: MEDIASTACK_API_KEY
+      max_records: 35
+      queries:
+        - "US Iran conflict"
+        - "Persian Gulf escalation"
 
 israel_palestine_conflict:
-  keywords:
-    - "Israel Palestine conflict"
-    - "Gaza ceasefire"
-    - "West Bank violence"
-    - "Hamas Israel"
-    - "humanitarian aid Gaza"
-    - "UN resolution Gaza"
-  query_templates:
-    - "site:<domain> <keyword> <date_hint>"
-    - "site:<domain> <keyword> analysis"
-    - "site:<domain> <keyword> live updates"
-  max_urls_per_query: 10
+  start_date: "2025-10-01"
+  end_date: "2026-03-24"
+  source_strategy: "GDELT primary for events/GKG signals, Guardian for full text, optional enrichment providers"
+  providers:
+    - name: gdelt
+      max_records: 140
+      queries:
+        - "Israel Palestine conflict OR Gaza"
+        - "Hamas Israel ceasefire"
+        - "West Bank violence humanitarian aid"
+    - name: guardian
+      page_size: 40
+      max_pages: 2
+      queries:
+        - "Israel Palestine conflict"
+        - "Gaza ceasefire"
+        - "West Bank violence"
+    - name: gnews
+      enabled_if_env: GNEWS_API_KEY
+      max_records: 35
+      queries:
+        - "Israel Gaza conflict"
+        - "Hamas Israel"
+    - name: mediastack
+      enabled_if_env: MEDIASTACK_API_KEY
+      max_records: 35
+      queries:
+        - "Gaza ceasefire"
+        - "West Bank violence"

@@ -1,4 +1,4 @@
-# Dataset Spec: 3 Timelines
+# Dataset Spec: 3 Timelines (Provider-Driven Ingestion)
 
 ## 1. Timeline IDs and windows
 
@@ -6,10 +6,17 @@
 - `us_iran_conflict`: 2025-10-01 to 2026-03-24 (adjustable)
 - `israel_palestine_conflict`: 2025-10-01 to 2026-03-24 (adjustable)
 
-## 2. Allowed domains only
+Date windows are defined in `configs/timeline_queries.yaml` and can be overridden at runtime with `--start-date` / `--end-date`.
 
-- `timesofindia.indiatimes.com`
-- `economictimes.indiatimes.com`
+## 2. Provider mix and source strategy
+
+Primary providers are now explicitly configured per timeline:
+
+- **Guardian Content API** (`guardian`): full text + metadata source when available.
+- **GDELT DOC API** (`gdelt`): event/GKG-oriented coverage and long-tail discovery.
+- **Optional enrichers**: `gnews`, `mediastack` (enabled only if API keys are present).
+
+Per-timeline source strategy and query packs are maintained in `configs/timeline_queries.yaml` under each timeline entry.
 
 ## 3. Target counts per timeline
 
@@ -17,42 +24,54 @@
 - Soft floor: 80
 - Hard floor: 60 (flag if below)
 
-## 4. Inclusion criteria
+## 4. Canonical intermediate schema (JSONL)
 
-- Must match timeline-specific keyword packs.
-- Must have valid published datetime and body content.
+Every mapped record must preserve these fields so downstream dedup/chunk/embed scripts remain compatible:
 
-## 5. Exclusion criteria
+- `timeline_id`
+- `source`
+- `provider`
+- `provider_query`
+- `url`
+- `canonical_url`
+- `title`
+- `published_at`
+- `author`
+- `section`
+- `scraped_at`
+- `content_hash`
+- `language`
+- `is_paywalled` (boolean)
+- `url_section` (top-level URL path, e.g. `/world`, `/business`)
+- `body`
 
-- Photo galleries, pure video pages, near-empty market snippets, non-article stubs, duplicate wires, and any article with a body text word count under 200 words.
+## 5. Inclusion criteria
 
-## 6. Required metadata fields
+- Record must be returned by at least one configured provider query for that timeline.
+- Must have a valid URL and usable body text after mapping/enrichment.
+- Must have a normalized publication timestamp (`published_at`) or fallback ingestion timestamp.
 
-- `timeline_id`, `source`, `url`, `canonical_url`, `title`, `published_at`, `author`, `section`, `scraped_at`, `content_hash`, `language`, `is_paywalled` (boolean), `url_section` (extracted top-level directory, e.g., `/world`, `/business`).
+## 6. Exclusion criteria
+
+- Empty URLs, malformed payloads, records with near-empty body text, and hard duplicates.
+- Duplicate canonical URLs.
+- Duplicate exact content hashes.
 
 ## 7. Dedup policy
 
-- Canonical URL dedup + exact hash dedup + near-duplicate collapse.
-- For articles matching keywords in both `us_iran_conflict` and `israel_palestine_conflict`, the scraper must append both to the `timeline_id` array rather than arbitrarily dropping one.
+- Canonical URL dedup + exact hash dedup in ingestion stage.
+- Near-duplicate collapse remains in `scripts/prepare_three_timelines_chunks.py`.
+- If one article/event is relevant to multiple timelines, assign explicit timeline ownership upstream via timeline query strategy (or post-process multi-labeling if required).
 
-## 8. Target keyword packs
+## 8. Engineering notes
 
-### `budget_2026`
+- The scraper no longer relies on `ALLOWED_DOMAINS` and DuckDuckGo discovery.
+- Provider loops are the first-phase discovery mechanism.
+- For providers that do not always ship full body text (for example, GDELT/GNews/Mediastack), the scraper attempts URL-level JSON-LD extraction and maps to the canonical schema.
+- Optional providers are automatically skipped when their API keys are not set.
 
-- Primary (must include at least 1): `Budget 2026`, `Union Budget`, `Nirmala Sitharaman`, `economic survey`.
-- Secondary (contextual amplifiers): `fiscal deficit`, `income tax slabs`, `capex`, `capital expenditure`, `customs duty`, `direct tax`.
+## 9. Runtime environment variables
 
-### `us_iran_conflict`
-
-- Primary (must include at least 1): `US strikes`, `Iran-backed`, `IRGC`, `Islamic Revolutionary Guard Corps`, `Tehran`.
-- Secondary (contextual amplifiers): `Strait of Hormuz`, `Red Sea shipping`, `Houthi`, `drone attack`, `sanctions`, `nuclear facility`.
-
-### `israel_palestine_conflict`
-
-- Primary (must include at least 1): `Gaza`, `Hamas`, `IDF`, `Israel Defense Forces`, `Netanyahu`, `Palestine`.
-- Secondary (contextual amplifiers): `Rafah`, `ceasefire`, `hostages`, `West Bank`, `two-state solution`, `UNRWA`.
-
-## 9. Scraper engineering note
-
-- Configure the scraper to inspect `<script type="application/ld+json">` in page source.
-- For both Times of India and Economic Times, full article text is typically available in the JSON-LD `articleBody` field, including cases where the visual frontend is blocked by a paywall.
+- `GUARDIAN_API_KEY` (defaults to `test` for low-volume development)
+- `GNEWS_API_KEY` (optional)
+- `MEDIASTACK_API_KEY` (optional)
