@@ -27,7 +27,7 @@ class SourcePolicyViolationError(ValueError):
 
 
 def canonicalize_and_validate_source_url(raw_url: str) -> tuple[str | None, str | None, str | None]:
-    """Canonicalize citation URL and verify it belongs to the configured allowlist."""
+    """Canonicalize citation URL and verify it belongs to the configured source policy."""
     if not raw_url:
         return None, None, "missing_url"
 
@@ -146,10 +146,29 @@ def _validate_citations_in_place(
         citation.url = canonical_url or citation.url
 
 
-def violations_to_response_payload(violations: list[CitationViolation]) -> dict[str, Any]:
+def _source_policy_metadata(provider: str | None = None) -> dict[str, Any]:
+    policy = get_source_policy()
+    selected_provider = (provider or "").strip().lower() or None
+    provider_for_filters = selected_provider or "gnews"
+    provider_filters = policy.build_filters(provider_for_filters)
+
+    return {
+        "provider": selected_provider,
+        "configured_providers": sorted(policy.provider_rules),
+        "allowed_domains": sorted(policy.allowed_domains),
+        "allowed_source_ids": sorted(policy.allowed_source_ids),
+        "provider_filters": provider_filters,
+    }
+
+
+def violations_to_response_payload(
+    violations: list[CitationViolation],
+    provider: str | None = None,
+) -> dict[str, Any]:
     """Return a JSON-serializable payload for API error responses."""
     return {
-        "message": "Model output included citations outside configured allowlist.",
+        "message": "Model output included citations outside configured source policy.",
+        "source_policy": _source_policy_metadata(provider),
         "violations": [
             {
                 "location": violation.location,
