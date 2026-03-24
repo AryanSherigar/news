@@ -27,6 +27,18 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
 
     try:
         news_context = await fetch_news_context(request.topic)
+
+        if news_context.get("empty_context"):
+            return StoryData(
+                timeline=[],
+                players=[],
+                relationships=[],
+                arcs=[],
+                insights=[],
+                news_context=[],
+                fetched_at=news_context["fetched_at"],
+            )
+
         story_data = await analyze_story(request.topic, news_context["prompt_context"])
         return story_data.model_copy(update={
             "news_context": news_context["items"],
