@@ -61,6 +61,9 @@ interface Insight {
   id: string;
   type: 'who_is_winning' | 'turning_point' | 'key_player' | 'summary';
   content: string;
+  state_of_play?: string | null;
+  why_now?: string | null;
+  watchlist?: string[] | null;
   citations: Citation[];
 }
 
@@ -315,6 +318,7 @@ export default function App() {
   const [loadingDeepDive, setLoadingDeepDive] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [analysisView, setAnalysisView] = useState<'overview' | 'deep'>('overview');
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -357,6 +361,21 @@ export default function App() {
     if (!data) return [];
     return (filteredTimeline.length > 1 ? filteredTimeline : data.timeline).slice(1, 3);
   }, [data, filteredTimeline]);
+
+  const summaryInsight = useMemo(
+    () => data?.insights.find((insight) => insight.type === 'summary') ?? null,
+    [data],
+  );
+
+  const keyPlayerInsight = useMemo(
+    () => data?.insights.find((insight) => insight.type === 'key_player') ?? null,
+    [data],
+  );
+
+  const fallbackKeyPlayers = useMemo(
+    () => (data?.players.slice(0, 2).map((player) => player.name).join(' and ') ?? ''),
+    [data],
+  );
 
   // Apply Filters to Graph
   useEffect(() => {
@@ -862,6 +881,66 @@ export default function App() {
                 </article>
               </aside>
             </section>
+
+            <section className="editorial-surface p-6 md:p-7">
+              <div className="flex items-center justify-between gap-3 mb-5">
+                <div>
+                  <p className="editorial-kicker">Plain-language brief</p>
+                  <h3 className="text-2xl leading-tight mt-1">What this story means right now</h3>
+                </div>
+                <div className="inline-flex rounded-full border p-1" style={{ borderColor: 'var(--line)' }}>
+                  <button
+                    onClick={() => setAnalysisView('overview')}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-semibold rounded-full transition-colors',
+                      analysisView === 'overview'
+                        ? 'bg-black text-white dark:bg-white dark:text-black'
+                        : 'text-[var(--muted-fg)]'
+                    )}
+                  >
+                    Overview
+                  </button>
+                  <button
+                    onClick={() => setAnalysisView('deep')}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-semibold rounded-full transition-colors',
+                      analysisView === 'deep'
+                        ? 'bg-black text-white dark:bg-white dark:text-black'
+                        : 'text-[var(--muted-fg)]'
+                    )}
+                  >
+                    Deep analysis
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <article className="rounded-xl border p-4" style={{ borderColor: 'var(--line)', backgroundColor: 'var(--surface-muted)' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-fg)' }}>What happened</p>
+                  <p className="mt-2 text-sm leading-relaxed">{summaryInsight?.state_of_play ?? leadEvent?.description ?? summaryInsight?.content ?? 'No concise state-of-play is available yet.'}</p>
+                </article>
+                <article className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-fg)' }}>Why it matters</p>
+                  <p className="mt-2 text-sm leading-relaxed">{summaryInsight?.why_now ?? summaryInsight?.content ?? 'The impacts and stakes are still being synthesized from the current source set.'}</p>
+                </article>
+                <article className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-fg)' }}>Who matters most</p>
+                  <p className="mt-2 text-sm leading-relaxed">{keyPlayerInsight?.content ?? (fallbackKeyPlayers || 'Key players are still being identified.')}</p>
+                </article>
+                <article className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--muted-fg)' }}>What to watch next</p>
+                  <ul className="mt-2 space-y-2 text-sm leading-relaxed list-disc pl-4">
+                    {(summaryInsight?.watchlist?.length ? summaryInsight.watchlist : data.arcs.slice(0, 2).map((arc) => arc.title)).map((item, idx) => (
+                      <li key={`${item}-${idx}`}>{item}</li>
+                    ))}
+                  </ul>
+                </article>
+              </div>
+              {summaryInsight?.citations?.length ? (
+                <div className="mt-4">
+                  <CitationList citations={summaryInsight.citations} compact />
+                </div>
+              ) : null}
+            </section>
             
             {/* Filter Bar */}
             <div className="editorial-surface p-4 flex flex-wrap items-center gap-4">
@@ -933,8 +1012,42 @@ export default function App() {
               )}
             </div>
 
-            {/* Top Row: Timeline & Sentiment */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {analysisView === 'overview' ? (
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <article className="editorial-surface p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <Clock className="w-5 h-5 text-[var(--accent)]" />
+                    <h2 className="text-3xl leading-none">Timeline Highlights</h2>
+                  </div>
+                  <div className="space-y-4">
+                    {filteredTimeline.slice(0, 4).map((event) => (
+                      <div key={event.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                        <p className="text-xs font-medium" style={{ color: 'var(--muted-fg)' }}>{event.date}</p>
+                        <p className="mt-1 font-semibold">{event.title}</p>
+                        <p className="mt-1 text-sm" style={{ color: 'var(--muted-fg)' }}>{event.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+                <article className="editorial-surface p-6">
+                  <div className="flex items-center gap-2 mb-5">
+                    <Eye className="w-5 h-5 text-[var(--accent)]" />
+                    <h2 className="text-3xl leading-none">Key Insights</h2>
+                  </div>
+                  <div className="space-y-4">
+                    {data.insights.slice(0, 4).map((insight, idx) => (
+                      <div key={`${insight.id}-${idx}`} className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                        <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--muted-fg)' }}>{insight.type.replace(/_/g, ' ')}</p>
+                        <p className="text-sm leading-relaxed">{insight.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              </section>
+            ) : (
+              <>
+                {/* Top Row: Timeline & Sentiment */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               
               {/* Timeline */}
               <div className="lg:col-span-1 editorial-surface p-6 flex flex-col h-[500px]">
@@ -1057,10 +1170,10 @@ export default function App() {
                   </ResponsiveContainer>
                 </div>
               </div>
-            </div>
+                </div>
 
-            {/* Middle Row: Key Players Map */}
-            <div className="editorial-surface p-6 h-[600px] flex flex-col">
+                {/* Middle Row: Key Players Map */}
+                <div className="editorial-surface p-6 h-[600px] flex flex-col">
               <div className="flex items-center gap-2 mb-4">
                 <Users className="w-5 h-5 text-[var(--accent)]" />
                 <h2 className="text-3xl leading-none">Key Players & Relationships</h2>
@@ -1091,10 +1204,10 @@ export default function App() {
                 <div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-emerald-500"></div> Alliance</div>
                 <div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-blue-500"></div> Neutral</div>
               </div>
-            </div>
+                </div>
 
-            {/* Bottom Row: Arcs & Insights */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Bottom Row: Arcs & Insights */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               
               {/* Story Arcs */}
               <div className="md:col-span-2 editorial-surface p-6">
@@ -1181,7 +1294,9 @@ export default function App() {
                 </div>
               </div>
 
-            </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

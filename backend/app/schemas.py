@@ -118,6 +118,18 @@ class Insight(BaseModel):
     id: str
     type: InsightType
     content: str
+    state_of_play: str | None = Field(
+        default=None,
+        description="Plain-language status update of what is currently happening (especially for summary insights)"
+    )
+    why_now: str | None = Field(
+        default=None,
+        description="Plain-language explanation of why the development matters now (especially for summary insights)"
+    )
+    watchlist: list[str] = Field(
+        default_factory=list,
+        description="Specific signals, decisions, or milestones to monitor next (especially for summary insights)"
+    )
     citations: list[Citation] = Field(
         default_factory=list,
         min_length=1,
