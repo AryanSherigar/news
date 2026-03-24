@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app.schemas import (
     Arc,
@@ -18,39 +19,133 @@ from app.schemas import (
     StoryEvent,
     TimelineContribution,
 )
+from app.services.source_policy import ProviderRetrievalRule, SourcePolicy
 from app.services.source_validator import (
+    CitationViolation,
     SourcePolicyViolationError,
     canonicalize_and_validate_source_url,
     validate_profile_sources_or_raise,
     validate_story_sources_or_raise,
+    violations_to_response_payload,
 )
 
 
 class SourceValidatorTests(unittest.TestCase):
     def test_canonicalize_and_validate_source_url_keeps_allowlisted_domain(self) -> None:
-        canonical, domain, error = canonicalize_and_validate_source_url(
-            "http://economictimes.indiatimes.com/story?a=1&utm_source=x"
-        )
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True),
+        ):
+            canonical, domain, error = canonicalize_and_validate_source_url(
+                "http://economictimes.indiatimes.com/story?a=1&utm_source=x&fbclid=abc"
+            )
 
         self.assertEqual(canonical, "https://economictimes.indiatimes.com/story?a=1")
         self.assertEqual(domain, "economictimes.indiatimes.com")
         self.assertIsNone(error)
 
-    def test_validate_story_sources_or_raise_raises_for_disallowed_domain(self) -> None:
+    def test_validate_story_sources_or_raise_rejects_non_allowlisted_domain_in_strict_mode(self) -> None:
         story = _make_story("https://example.com/disallowed")
 
-        with self.assertRaises(SourcePolicyViolationError):
-            validate_story_sources_or_raise(story)
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True),
+        ):
+            with self.assertRaises(SourcePolicyViolationError):
+                validate_story_sources_or_raise(story)
 
     def test_validate_profile_sources_or_raise_canonicalizes_nested_profile_citation(self) -> None:
         profile = _make_profile("http://timesofindia.indiatimes.com/article?fbclid=123")
 
-        validate_profile_sources_or_raise(profile)
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True),
+        ):
+            validate_profile_sources_or_raise(profile)
 
         self.assertEqual(
             profile.timeline_contributions[0].citations[0].url,
             "https://timesofindia.indiatimes.com/article",
         )
+
+    def test_validate_story_sources_or_raise_accepts_mixed_provider_domains_in_broad_mode(self) -> None:
+        story = _make_story("https://www.theguardian.com/world/2026/mar/24/update?utm_medium=email")
+        story.timeline[0].citations.append(_make_citation("https://www.gdeltproject.org/data?utm_campaign=a"))
+        story.insights[0].citations = [_make_citation("https://news.google.com/articles/xyz?ref=abc")]
+
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=False),
+        ):
+            validate_story_sources_or_raise(story)
+
+        self.assertEqual(story.timeline[0].citations[0].url, "https://theguardian.com/world/2026/mar/24/update")
+        self.assertEqual(story.timeline[0].citations[1].url, "https://gdeltproject.org/data")
+        self.assertEqual(story.insights[0].citations[0].url, "https://news.google.com/articles/xyz")
+
+    def test_validate_story_sources_or_raise_rejects_mixed_provider_domains_in_strict_mode(self) -> None:
+        story = _make_story("https://www.theguardian.com/world/2026/mar/24/update")
+        story.insights[0].citations = [_make_citation("https://news.google.com/articles/xyz")]
+
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True),
+        ):
+            with self.assertRaises(SourcePolicyViolationError) as exc_info:
+                validate_story_sources_or_raise(story)
+
+        rejected_domains = {violation.domain for violation in exc_info.exception.violations}
+        self.assertSetEqual(rejected_domains, {"theguardian.com", "news.google.com"})
+
+    def test_violations_payload_is_policy_aware_for_configured_sources(self) -> None:
+        violation = CitationViolation(
+            location="timeline[0].citations[0].url",
+            url="https://example.org/story",
+            domain="example.org",
+            reason="disallowed_domain",
+        )
+
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True, allowed_source_ids=("GUARDIAN", "GDELT", "GNEWS")),
+        ):
+            payload = violations_to_response_payload([violation], provider="guardian")
+
+        self.assertEqual(payload["message"], "Model output included citations outside configured source policy.")
+        self.assertEqual(payload["source_policy"]["allowed_source_ids"], ["GDELT", "GNEWS", "GUARDIAN"])
+        self.assertEqual(payload["source_policy"]["provider"], "guardian")
+        self.assertEqual(payload["source_policy"]["provider_filters"], {"source_in": ["GDELT", "GNEWS", "GUARDIAN"]})
+        self.assertEqual(payload["violations"][0]["reason"], "disallowed_domain")
+
+
+def _policy_fixture(
+    strict: bool,
+    allowed_domains: tuple[str, ...] = ("economictimes.indiatimes.com", "timesofindia.indiatimes.com"),
+    allowed_source_ids: tuple[str, ...] = ("ET", "TOI"),
+) -> SourcePolicy:
+    return SourcePolicy(
+        allowed_domains=frozenset(allowed_domains),
+        allowed_source_ids=frozenset(allowed_source_ids),
+        source_aliases={domain: source_id for domain, source_id in zip(allowed_domains, allowed_source_ids)},
+        strict_allowlist_validation=strict,
+        provider_rules={
+            "guardian": ProviderRetrievalRule(
+                provider="guardian",
+                include_domain_filter=False,
+                include_source_filter=True,
+            ),
+            "gdelt": ProviderRetrievalRule(
+                provider="gdelt",
+                include_domain_filter=True,
+                include_source_filter=False,
+            ),
+            "gnews": ProviderRetrievalRule(
+                provider="gnews",
+                include_domain_filter=True,
+                include_source_filter=True,
+            ),
+        },
+    )
 
 
 def _make_citation(url: str) -> Citation:
