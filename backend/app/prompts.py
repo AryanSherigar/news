@@ -85,6 +85,9 @@ Fields:
 * id: string
 * type: one of: \"who_is_winning\", \"turning_point\", \"key_player\", \"summary\"
 * content: concise explanation
+* state_of_play: plain-language explanation of what is happening right now
+* why_now: plain-language explanation of why this matters now
+* watchlist: string[] of near-term signals, decisions, or milestones to monitor next
 * citations: Citation[]
 
 ---
@@ -99,6 +102,7 @@ Fields:
 6. Generate insights based on the narrative dynamics.
 7. Ground every event and insight in the provided news context.
 8. Attach at least one citation to every generated event and every generated insight.
+9. Include at least one \"summary\" insight that fills in `state_of_play`, `why_now`, and at least 2 concrete `watchlist` items.
 
 ---
 
