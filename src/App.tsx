@@ -122,6 +122,14 @@ interface StoryData {
   fetched_at?: string | null;
 }
 
+type RelationshipLane = Relationship['type'];
+
+interface GraphGrouping {
+  arcKey: string;
+  arcLabel: string;
+  players: Player[];
+}
+
 // --- Custom Node for React Flow ---
 const PlayerNode = ({ data }: { data: { label: string; role: string; type: string; isHighlighted?: boolean; isDimmed?: boolean } }) => {
   return (
@@ -303,6 +311,60 @@ const LOADING_MESSAGES = [
 
 const EDITORIAL_CATEGORIES = ['World', 'Business', 'Tech', 'Policy', 'Culture'];
 
+const getRelationshipLane = (
+  playerId: string,
+  relationships: Relationship[],
+): RelationshipLane => {
+  const totals: Record<RelationshipLane, number> = {
+    alliance: 0,
+    conflict: 0,
+    neutral: 0,
+  };
+
+  relationships.forEach((relationship) => {
+    if (relationship.source !== playerId && relationship.target !== playerId) return;
+    totals[relationship.type] += relationship.strength || 1;
+  });
+
+  if (totals.conflict >= totals.alliance && totals.conflict >= totals.neutral) return 'conflict';
+  if (totals.alliance >= totals.neutral) return 'alliance';
+  return 'neutral';
+};
+
+const buildConnectedComponents = (players: Player[], relationships: Relationship[]) => {
+  const adjacency = new Map<string, Set<string>>();
+  players.forEach((player) => adjacency.set(player.id, new Set<string>()));
+
+  relationships.forEach((relationship) => {
+    adjacency.get(relationship.source)?.add(relationship.target);
+    adjacency.get(relationship.target)?.add(relationship.source);
+  });
+
+  const componentByPlayer = new Map<string, number>();
+  const visited = new Set<string>();
+  let componentIndex = 0;
+
+  players.forEach((player) => {
+    if (visited.has(player.id)) return;
+    componentIndex += 1;
+    const queue = [player.id];
+    visited.add(player.id);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      componentByPlayer.set(current, componentIndex);
+      adjacency.get(current)?.forEach((neighbor) => {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      });
+    }
+  });
+
+  return componentByPlayer;
+};
+
 // --- Main Component ---
 export default function App() {
   const [topic, setTopic] = useState('');
@@ -319,6 +381,7 @@ export default function App() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [analysisView, setAnalysisView] = useState<'overview' | 'deep'>('overview');
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -333,6 +396,18 @@ export default function App() {
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const accentColor = isDarkMode ? '#d33a3f' : '#b61f24';
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobileViewport(event.matches);
+    };
+
+    handleChange(mediaQuery);
+    const listener = (event: MediaQueryListEvent) => handleChange(event);
+    mediaQuery.addEventListener('change', listener);
+    return () => mediaQuery.removeEventListener('change', listener);
+  }, []);
 
   // Filtered Timeline
   const filteredTimeline = useMemo(() => {
@@ -376,6 +451,43 @@ export default function App() {
     () => (data?.players.slice(0, 2).map((player) => player.name).join(' and ') ?? ''),
     [data],
   );
+
+  const graphIsDense = useMemo(() => {
+    if (!data) return false;
+    const nodeCount = data.players.length;
+    const edgeCount = data.relationships.length;
+    const density = edgeCount / Math.max(1, nodeCount);
+    return nodeCount > 14 || edgeCount > 26 || density > 1.8;
+  }, [data]);
+
+  const compactGraphGroups = useMemo<GraphGrouping[]>(() => {
+    if (!data) return [];
+    const arcById = new Map(data.arcs.map((arc) => [arc.id, arc]));
+    const componentByPlayer = buildConnectedComponents(data.players, data.relationships);
+    const arcForPlayer = new Map<string, string>();
+
+    data.arcs.forEach((arc) => {
+      arc.involvedPlayers.forEach((playerId) => {
+        if (!arcForPlayer.has(playerId)) {
+          arcForPlayer.set(playerId, arc.id);
+        }
+      });
+    });
+
+    const groups = new Map<string, GraphGrouping>();
+    data.players.forEach((player) => {
+      const arcId = arcForPlayer.get(player.id);
+      const clusterId = componentByPlayer.get(player.id) ?? 0;
+      const groupKey = arcId ?? `cluster-${clusterId}`;
+      const label = arcId ? (arcById.get(arcId)?.title ?? arcId) : `Independent Cluster ${clusterId}`;
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { arcKey: groupKey, arcLabel: label, players: [] });
+      }
+      groups.get(groupKey)?.players.push(player);
+    });
+
+    return [...groups.values()];
+  }, [data]);
 
   // Apply Filters to Graph
   useEffect(() => {
@@ -568,13 +680,95 @@ export default function App() {
   };
 
   const setupGraph = (parsedData: StoryData) => {
-    const newNodes = parsedData.players.map((player, index) => ({
+    const playerById = new Map(parsedData.players.map((player) => [player.id, player]));
+    const arcById = new Map(parsedData.arcs.map((arc) => [arc.id, arc]));
+    const arcForPlayer = new Map<string, string>();
+
+    parsedData.arcs.forEach((arc) => {
+      arc.involvedPlayers.forEach((playerId) => {
+        if (!arcForPlayer.has(playerId)) {
+          arcForPlayer.set(playerId, arc.id);
+        }
+      });
+    });
+
+    const centralityScore = new Map<string, number>();
+    parsedData.players.forEach((player) => centralityScore.set(player.id, 0));
+    parsedData.relationships.forEach((relationship) => {
+      const weight = 1 + (relationship.strength ?? 0.5);
+      centralityScore.set(relationship.source, (centralityScore.get(relationship.source) ?? 0) + weight);
+      centralityScore.set(relationship.target, (centralityScore.get(relationship.target) ?? 0) + weight);
+    });
+
+    const componentByPlayer = buildConnectedComponents(parsedData.players, parsedData.relationships);
+    const nodePositionById = new Map<string, { x: number; y: number }>();
+
+    const groups = new Map<string, GraphGrouping>();
+    parsedData.players.forEach((player) => {
+      const assignedArcId = arcForPlayer.get(player.id);
+      const clusterId = componentByPlayer.get(player.id) ?? 0;
+      const arcKey = assignedArcId ?? `cluster-${clusterId}`;
+      const arcLabel = assignedArcId
+        ? (arcById.get(assignedArcId)?.title ?? assignedArcId)
+        : `Independent Cluster ${clusterId}`;
+
+      if (!groups.has(arcKey)) {
+        groups.set(arcKey, { arcKey, arcLabel, players: [] });
+      }
+      groups.get(arcKey)?.players.push(player);
+    });
+
+    const sortedGroups = [...groups.values()].sort((a, b) => {
+      const aArc = arcById.get(a.arcKey);
+      const bArc = arcById.get(b.arcKey);
+      if (aArc && bArc) {
+        const aStart = parsedData.timeline.findIndex((event) => event.id === aArc.startEventId);
+        const bStart = parsedData.timeline.findIndex((event) => event.id === bArc.startEventId);
+        return (aStart === -1 ? Number.MAX_SAFE_INTEGER : aStart) - (bStart === -1 ? Number.MAX_SAFE_INTEGER : bStart);
+      }
+      if (aArc) return -1;
+      if (bArc) return 1;
+      return a.arcLabel.localeCompare(b.arcLabel);
+    });
+
+    const groupWidth = 340;
+    const nodeSpacingX = 170;
+    const laneY: Record<RelationshipLane, number> = {
+      alliance: 90,
+      neutral: 280,
+      conflict: 470,
+    };
+    const laneSpreadY = 54;
+
+    sortedGroups.forEach((group, groupIndex) => {
+      const baseX = 80 + groupIndex * groupWidth;
+      const lanes: Record<RelationshipLane, Player[]> = {
+        alliance: [],
+        neutral: [],
+        conflict: [],
+      };
+
+      group.players.forEach((player) => {
+        const lane = getRelationshipLane(player.id, parsedData.relationships);
+        lanes[lane].push(player);
+      });
+
+      (Object.keys(lanes) as RelationshipLane[]).forEach((laneType) => {
+        const lanePlayers = lanes[laneType].sort((a, b) => (centralityScore.get(b.id) ?? 0) - (centralityScore.get(a.id) ?? 0));
+        lanePlayers.forEach((player, laneIndex) => {
+          const columnOffset = laneIndex % 2 === 0 ? Math.floor(laneIndex / 2) : -Math.ceil(laneIndex / 2);
+          const rowJitter = (laneIndex % 3) - 1;
+          const x = baseX + 130 + columnOffset * nodeSpacingX;
+          const y = laneY[laneType] + rowJitter * laneSpreadY;
+          nodePositionById.set(player.id, { x, y });
+        });
+      });
+    });
+
+    const newNodes = parsedData.players.map((player) => ({
       id: player.id,
       type: 'playerNode',
-      position: { 
-        x: (index % 3) * 250 + 50, 
-        y: Math.floor(index / 3) * 150 + 50 
-      },
+      position: nodePositionById.get(player.id) ?? { x: 80, y: 280 },
       data: { label: player.name, role: player.role, type: player.type },
     }));
 
@@ -584,20 +778,36 @@ export default function App() {
       if (rel.type === 'alliance') color = '#10b981'; // emerald-500
       if (rel.type === 'neutral') color = '#3b82f6'; // blue-500
 
+      const sourcePosition = nodePositionById.get(rel.source);
+      const targetPosition = nodePositionById.get(rel.target);
+      const source = sourcePosition && targetPosition && sourcePosition.x > targetPosition.x ? rel.target : rel.source;
+      const target = source === rel.source ? rel.target : rel.source;
+      const sourcePlayer = playerById.get(source);
+      const targetPlayer = playerById.get(target);
+
       return {
         id: `e-${rel.source}-${rel.target}-${index}`,
-        source: rel.source,
-        target: rel.target,
+        source,
+        target,
         label: rel.description,
         animated: rel.type === 'conflict',
         data: { originalAnimated: rel.type === 'conflict', type: rel.type },
-        style: { stroke: color, strokeWidth: 2, transition: 'opacity 0.3s, stroke-width 0.3s' },
+        type: 'smoothstep',
+        style: {
+          stroke: color,
+          strokeWidth: rel.type === 'conflict' ? 2.8 : 2.2,
+          strokeDasharray: rel.type === 'neutral' ? '6 6' : undefined,
+          transition: 'opacity 0.3s, stroke-width 0.3s',
+        },
         labelStyle: { fill: 'var(--edge-label-color)', fontWeight: 500, fontSize: 10 },
         labelBgStyle: { fill: 'var(--edge-bg-color)', fillOpacity: 0.8 },
+        pathOptions: { borderRadius: 16, offset: rel.type === 'conflict' ? 22 : 14 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: color,
         },
+        sourceNode: sourcePlayer?.type,
+        targetNode: targetPlayer?.type,
       };
     });
 
@@ -1176,25 +1386,63 @@ export default function App() {
                 <Users className="w-5 h-5 text-[var(--accent)]" />
                 <h2 className="text-3xl leading-none">Key Players & Relationships</h2>
               </div>
-              <div className="flex-1 border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-50/50 dark:bg-slate-950/50">
-                <ReactFlow
-                  nodes={nodes}
-                  edges={edges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  onNodeClick={onNodeClick}
-                  onNodeDoubleClick={onNodeDoubleClick}
-                  onPaneClick={onPaneClick}
-                  nodeTypes={nodeTypes}
-                  fitView
-                  attributionPosition="bottom-right"
-                  colorMode={isDarkMode ? 'dark' : 'light'}
-                >
-                  <Background color={isDarkMode ? '#475569' : '#cbd5e1'} gap={16} />
-                  <Controls />
-                  <MiniMap nodeStrokeWidth={3} zoomable pannable />
-                </ReactFlow>
-              </div>
+              {graphIsDense && isMobileViewport ? (
+                <div className="flex-1 border border-slate-100 dark:border-slate-800 rounded-xl overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 p-4 space-y-4">
+                  <p className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Compact mode enabled: this network is too dense for reliable mobile exploration.
+                  </p>
+                  {compactGraphGroups.map((group) => (
+                    <section key={group.arcKey} className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/70 p-3">
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{group.arcLabel}</h3>
+                      <div className="mt-3 space-y-2">
+                        {group.players
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map((player) => {
+                            const lane = getRelationshipLane(player.id, data.relationships);
+                            return (
+                              <div key={player.id} className="flex items-center justify-between rounded-md border border-slate-200 dark:border-slate-700 px-3 py-2">
+                                <div>
+                                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{player.name}</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">{player.role}</p>
+                                </div>
+                                <span
+                                  className={cn(
+                                    'text-[10px] uppercase tracking-wide font-semibold px-2 py-1 rounded-full',
+                                    lane === 'alliance' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+                                    lane === 'conflict' && 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+                                    lane === 'neutral' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+                                  )}
+                                >
+                                  {lane}
+                                </span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex-1 border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-50/50 dark:bg-slate-950/50">
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onNodeClick={onNodeClick}
+                    onNodeDoubleClick={onNodeDoubleClick}
+                    onPaneClick={onPaneClick}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    attributionPosition="bottom-right"
+                    colorMode={isDarkMode ? 'dark' : 'light'}
+                  >
+                    <Background color={isDarkMode ? '#475569' : '#cbd5e1'} gap={16} />
+                    <Controls />
+                    <MiniMap nodeStrokeWidth={3} zoomable pannable />
+                  </ReactFlow>
+                </div>
+              )}
               <div className="flex items-center gap-6 mt-4 text-sm justify-center" style={{ color: 'var(--muted-fg)' }}>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Company</div>
                 <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div> Person/Other</div>
