@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import aiohttp
 
-from app.schemas import NewsItem
+from app.schemas import NewsItem, NewsSource
 
 
 logger = logging.getLogger(__name__)
@@ -34,14 +34,7 @@ TRACKING_QUERY_PARAMS = {
     "yclid",
 }
 
-NO_NEWS_CONTEXT = [
-    NewsItem(
-        title="No live news retrieved",
-        link="",
-        source="System",
-        published_at="",
-    )
-]
+NO_NEWS_CONTEXT: list[NewsItem] = []
 
 
 async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]:
@@ -102,14 +95,25 @@ def _to_news_item(item: dict[str, Any]) -> NewsItem | None:
         )
         return None
 
-    source_info = item.get("source") or {}
-    source_name = source_info.get("title") if isinstance(source_info, dict) else ""
-    canonical_source_name = SOURCE_ALIASES.get(hostname or "", source_name or "Unknown source")
+    parsed_normalized = urlparse(normalized_link or "")
+    canonical_domain = (parsed_normalized.hostname or "").lower()
+    if not canonical_domain:
+        logger.info("Rejected news item URL", extra={"reason": "missing_canonical_domain", "url": original_link})
+        return None
+
+    mapped_source = SOURCE_ALIASES.get(canonical_domain)
+    if not mapped_source:
+        logger.info(
+            "Rejected news item URL",
+            extra={"reason": "unknown_source_mapping", "domain": canonical_domain, "url": normalized_link},
+        )
+        return None
 
     return NewsItem(
         title=item.get("title", ""),
-        link=normalized_link or "",
-        source=canonical_source_name,
+        url=normalized_link or "",
+        domain=canonical_domain,
+        source=NewsSource(mapped_source),
         published_at=item.get("pubDate", ""),
     )
 

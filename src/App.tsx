@@ -69,8 +69,9 @@ interface Insight {
 
 interface NewsItem {
   title: string;
-  link: string;
-  source: string;
+  url: string;
+  domain: string;
+  source: 'ET' | 'TOI';
   published_at: string;
 }
 

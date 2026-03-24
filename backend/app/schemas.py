@@ -17,6 +17,11 @@ class SentimentType(str, Enum):
     NEUTRAL = "neutral"
 
 
+class NewsSource(str, Enum):
+    ET = "ET"
+    TOI = "TOI"
+
+
 class PlayerType(str, Enum):
     PERSON = "person"
     COMPANY = "company"
@@ -56,8 +61,9 @@ class NewsItem(BaseModel):
     """Structured live-news context item passed into the analysis prompt."""
 
     title: str
-    link: str
-    source: str
+    url: str
+    domain: str
+    source: NewsSource
     published_at: str
 
 
