@@ -113,8 +113,9 @@ Fields:
 * Prefer fewer high-quality events over many trivial ones.
 * Ensure consistency: All referenced IDs must exist, no missing links.
 * Arcs must reflect real narrative progression: beginning → escalation → resolution (if applicable).
-* Use only claims supported by the provided news items. Never use model prior knowledge. If evidence is weak or missing, use this exact fallback text: "I don’t have enough TOI/ET information".
-* If retrieved context includes sources outside the TOI/ET allowlist, ignore those sources completely and respond with: "I don’t have enough TOI/ET information".
+* Use only claims supported by the provided news items. Never use model prior knowledge. If evidence is weak or missing, use this exact fallback text: "{fallback_text}".
+* Allowed source policy label: "{allowed_source_policy_label}".
+* If retrieved context includes unsupported sources, {unsupported_source_behavior}.
 * Every claim must include at least one citation from retrieved context containing source title, canonical URL, and publication date, plus a grounded snippet.
 * Each citation must map to a specific provided news item and use its source name/title, canonical URL, publication date, and a grounded snippet.
 * Do not invent sources, URLs, or publication timestamps.
@@ -197,9 +198,10 @@ Return ONLY valid JSON with the following structure:
 7. Reuse the supplied player/event IDs when they are present in the context.
 8. Do not fall back to generic or placeholder descriptions; synthesize only from the supplied analysis.
 9. Never rely on model prior knowledge; answer only from the provided context.
-10. If evidence is insufficient, return the exact fallback text: "I don’t have enough TOI/ET information" in relevant summary/outlook fields instead of speculative claims.
-11. If any context source is not on the TOI/ET allowlist, ignore it and use the same insufficient-context fallback text.
-12. Every claim must include citations with source title, canonical URL, and publication date.
+10. If evidence is insufficient, return the exact fallback text: "{fallback_text}" in relevant summary/outlook fields instead of speculative claims.
+11. Allowed source policy label: "{allowed_source_policy_label}".
+12. If any context source is unsupported, {unsupported_source_behavior}.
+13. Every claim must include citations with source title, canonical URL, and publication date.
 
 Keep all text concise and structured for direct UI rendering.
 
@@ -209,11 +211,29 @@ Keep all text concise and structured for direct UI rendering.
 Return ONLY valid JSON."""
 
 
-def get_analyze_prompt() -> ChatPromptTemplate:
+def get_analyze_prompt(
+    *,
+    allowed_source_policy_label: str,
+    fallback_text: str,
+    unsupported_source_behavior: str,
+) -> ChatPromptTemplate:
     """Get the story analysis prompt template."""
-    return ChatPromptTemplate.from_template(SYSTEM_PROMPT)
+    return ChatPromptTemplate.from_template(SYSTEM_PROMPT).partial(
+        allowed_source_policy_label=allowed_source_policy_label,
+        fallback_text=fallback_text,
+        unsupported_source_behavior=unsupported_source_behavior,
+    )
 
 
-def get_deep_dive_prompt() -> ChatPromptTemplate:
+def get_deep_dive_prompt(
+    *,
+    allowed_source_policy_label: str,
+    fallback_text: str,
+    unsupported_source_behavior: str,
+) -> ChatPromptTemplate:
     """Get the player profile deep-dive prompt template."""
-    return ChatPromptTemplate.from_template(DEEP_DIVE_PROMPT)
+    return ChatPromptTemplate.from_template(DEEP_DIVE_PROMPT).partial(
+        allowed_source_policy_label=allowed_source_policy_label,
+        fallback_text=fallback_text,
+        unsupported_source_behavior=unsupported_source_behavior,
+    )

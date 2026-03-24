@@ -23,6 +23,7 @@ class Settings(BaseSettings):
             "timesofindia.indiatimes.com": "TOI",
         }
     )
+    source_policy_fallback_text: str = "I don’t have enough allowlisted-source information"
 
     class Config:
         env_file = ".env"

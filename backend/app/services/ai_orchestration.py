@@ -2,6 +2,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.schemas import StoryData, PlayerProfile
 from app.prompts import get_analyze_prompt, get_deep_dive_prompt
 from app.config import get_settings
+from app.services.source_policy import build_prompt_policy_context
 
 
 def get_gemini_model():
@@ -26,7 +27,12 @@ async def analyze_story(topic: str, news_context: str) -> StoryData:
     Uses LangChain with ChatGoogleGenerativeAI and enforces StoryData schema.
     """
     model = get_gemini_model()
-    prompt = get_analyze_prompt()
+    policy_context = build_prompt_policy_context()
+    prompt = get_analyze_prompt(
+        allowed_source_policy_label=policy_context.allowed_source_policy_label,
+        fallback_text=policy_context.fallback_text,
+        unsupported_source_behavior=policy_context.unsupported_source_behavior,
+    )
     
     # Create chain with structured output
     chain = prompt | model.with_structured_output(StoryData)
@@ -56,7 +62,12 @@ async def generate_player_profile(
     Uses LangChain with structured output to enforce PlayerProfile schema.
     """
     model = get_gemini_model()
-    prompt = get_deep_dive_prompt()
+    policy_context = build_prompt_policy_context()
+    prompt = get_deep_dive_prompt(
+        allowed_source_policy_label=policy_context.allowed_source_policy_label,
+        fallback_text=policy_context.fallback_text,
+        unsupported_source_behavior=policy_context.unsupported_source_behavior,
+    )
     
     # Create chain with structured output
     chain = prompt | model.with_structured_output(PlayerProfile)

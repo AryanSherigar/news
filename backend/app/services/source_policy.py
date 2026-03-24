@@ -59,6 +59,38 @@ class SourcePolicy:
         return (rule.query_suffix or "").strip()
 
 
+@dataclass(frozen=True)
+class PromptPolicyContext:
+    """Prompt-safe source policy strings injected into runtime templates."""
+
+    allowed_source_policy_label: str
+    fallback_text: str
+    unsupported_source_behavior: str
+
+
+def build_prompt_policy_context(policy: SourcePolicy | None = None) -> PromptPolicyContext:
+    """Build deterministic prompt context values from runtime source policy settings."""
+    settings = get_settings()
+    resolved_policy = policy or get_source_policy()
+    allowed_source_ids = sorted(resolved_policy.allowed_source_ids)
+    allowed_source_policy_label = "/".join(allowed_source_ids) if allowed_source_ids else "configured source allowlist"
+
+    if resolved_policy.strict_allowlist_validation:
+        unsupported_source_behavior = (
+            "ignore unsupported sources completely and respond only with the fallback text"
+        )
+    else:
+        unsupported_source_behavior = (
+            "ignore unsupported sources and continue only with supported evidence; if none remains, use the fallback text"
+        )
+
+    return PromptPolicyContext(
+        allowed_source_policy_label=allowed_source_policy_label,
+        fallback_text=settings.source_policy_fallback_text,
+        unsupported_source_behavior=unsupported_source_behavior,
+    )
+
+
 def _default_provider_rules() -> dict[str, ProviderRetrievalRule]:
     return {
         "guardian": ProviderRetrievalRule(provider="guardian", include_domain_filter=False, include_source_filter=True),
