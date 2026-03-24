@@ -59,6 +59,14 @@ class RetryOutcome:
     attempts: int
 
 
+class RateLimitExceededError(RuntimeError):
+    """Raised when an upstream API keeps returning HTTP 429 after retries."""
+
+
+class QuotaExceededError(RuntimeError):
+    """Raised when the embedding provider reports exhausted credits/quota."""
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Embed and upsert timeline chunks into Pinecone")
     parser.add_argument("--input-jsonl", default=DEFAULT_INPUT_JSONL)
@@ -177,6 +185,7 @@ def request_json_with_retry(
     encoded = json.dumps(body).encode("utf-8")
     last_exc: Exception | None = None
 
+    saw_http_429 = False
     for attempt in range(1, max_retries + 1):
         req = Request(url=url, headers=headers, data=encoded, method="POST")
         try:
@@ -184,6 +193,21 @@ def request_json_with_retry(
                 payload = json.loads(response.read().decode("utf-8"))
                 return RetryOutcome(payload=payload, attempts=attempt)
         except (HTTPError, URLError, TimeoutError, ConnectionError, json.JSONDecodeError) as exc:
+            if isinstance(exc, HTTPError):
+                response_text = ""
+                try:
+                    response_text = exc.read().decode("utf-8", errors="replace")
+                except Exception:  # noqa: BLE001
+                    response_text = ""
+
+                if exc.code == 429:
+                    saw_http_429 = True
+                    lowered = response_text.lower()
+                    if "insufficient_quota" in lowered or "quota" in lowered:
+                        raise QuotaExceededError(
+                            "Embedding API quota/credits appear exhausted (HTTP 429 insufficient_quota). "
+                            "Add billing credit or switch embedding provider key."
+                        ) from exc
             last_exc = exc
             if attempt >= max_retries:
                 break
@@ -191,6 +215,8 @@ def request_json_with_retry(
             logging.warning("request failed attempt=%s/%s url=%s retry_in=%.2fs error=%s", attempt, max_retries, url, sleep_seconds, exc)
             time.sleep(sleep_seconds)
 
+    if saw_http_429:
+        raise RateLimitExceededError(f"HTTP 429 persisted after {max_retries} retries for {url}: {last_exc}")
     raise RuntimeError(f"Request failed after {max_retries} attempts for {url}: {last_exc}")
 
 
@@ -296,9 +322,10 @@ def main() -> int:
     logging.info("input=%s rows=%s resume_start_index=%s dataset_sha256=%s", config.input_jsonl, len(rows), start_index, dataset_hash)
     logging.info("storage_mode=%s (Option A=single_collection, Option B=timeline_namespace)", config.pinecone_storage_mode)
 
+    stopped_due_to_rate_limit = False
+    stopped_due_to_quota = False
     for batch_start in range(start_index, len(rows), config.batch_size):
         batch_rows = rows[batch_start : batch_start + config.batch_size]
-        attempted += len(batch_rows)
 
         texts = [str(row.get("chunk_text", "")) for row in batch_rows]
 
@@ -311,7 +338,52 @@ def main() -> int:
                 raise RuntimeError(
                     f"Embedding response count mismatch batch_start={batch_start} expected={len(batch_rows)} got={len(embedding_data)}"
                 )
+        except RateLimitExceededError as exc:
+            logging.error(
+                "embed rate-limited start=%s size=%s error=%s -- stopping run without dead-lettering; retry later or lower --batch-size",
+                batch_start,
+                len(batch_rows),
+                exc,
+            )
+            write_checkpoint(
+                config.checkpoint_path,
+                {
+                    "last_success_index": batch_start - 1,
+                    "attempted": attempted,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                    "embedding_attempts": embedding_attempts,
+                    "upsert_attempts": upsert_attempts,
+                    "embedding_model_detected": detected_model,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            stopped_due_to_rate_limit = True
+            break
+        except QuotaExceededError as exc:
+            logging.error(
+                "embed quota exhausted start=%s size=%s error=%s -- stopping run without dead-lettering",
+                batch_start,
+                len(batch_rows),
+                exc,
+            )
+            write_checkpoint(
+                config.checkpoint_path,
+                {
+                    "last_success_index": batch_start - 1,
+                    "attempted": attempted,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                    "embedding_attempts": embedding_attempts,
+                    "upsert_attempts": upsert_attempts,
+                    "embedding_model_detected": detected_model,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            stopped_due_to_quota = True
+            break
         except Exception as exc:  # noqa: BLE001
+            attempted += len(batch_rows)
             failed += len(batch_rows)
             dlq_rows = [
                 {
@@ -339,6 +411,7 @@ def main() -> int:
             )
             continue
 
+        attempted += len(batch_rows)
         vectors_by_namespace: dict[str, list[dict[str, Any]]] = {}
         for row, emb in zip(batch_rows, embedding_data, strict=True):
             timeline_id = str(row.get("timeline_id", "unknown"))
@@ -429,7 +502,9 @@ def main() -> int:
     write_manifest(config.manifest_path, manifest)
 
     logging.info("done attempted=%s succeeded=%s failed=%s manifest=%s", attempted, succeeded, failed, config.manifest_path)
-    return 0
+    if stopped_due_to_quota:
+        return 3
+    return 2 if stopped_due_to_rate_limit else 0
 
 
 if __name__ == "__main__":
