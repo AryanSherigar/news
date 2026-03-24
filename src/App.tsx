@@ -1012,8 +1012,7 @@ export default function App() {
               )}
             </div>
 
-            {analysisView === 'overview' ? (
-              <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <section className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", analysisView !== 'overview' && 'hidden')}>
                 <article className="editorial-surface p-6">
                   <div className="flex items-center gap-2 mb-5">
                     <Clock className="w-5 h-5 text-[var(--accent)]" />
@@ -1044,10 +1043,9 @@ export default function App() {
                   </div>
                 </article>
               </section>
-            ) : (
-              <>
+
                 {/* Top Row: Timeline & Sentiment */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className={cn("grid grid-cols-1 lg:grid-cols-3 gap-8", analysisView !== 'deep' && 'hidden')}>
               
               {/* Timeline */}
               <div className="lg:col-span-1 editorial-surface p-6 flex flex-col h-[500px]">
@@ -1173,7 +1171,7 @@ export default function App() {
                 </div>
 
                 {/* Middle Row: Key Players Map */}
-                <div className="editorial-surface p-6 h-[600px] flex flex-col">
+                <div className={cn("editorial-surface p-6 h-[600px] flex flex-col", analysisView !== 'deep' && 'hidden')}>
               <div className="flex items-center gap-2 mb-4">
                 <Users className="w-5 h-5 text-[var(--accent)]" />
                 <h2 className="text-3xl leading-none">Key Players & Relationships</h2>
@@ -1207,7 +1205,7 @@ export default function App() {
                 </div>
 
                 {/* Bottom Row: Arcs & Insights */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-8", analysisView !== 'deep' && 'hidden')}>
               
               {/* Story Arcs */}
               <div className="md:col-span-2 editorial-surface p-6">
@@ -1295,8 +1293,6 @@ export default function App() {
               </div>
 
                 </div>
-              </>
-            )}
           </div>
         )}
 
