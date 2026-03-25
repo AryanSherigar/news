@@ -1,0 +1,21 @@
+{
+  "input_jsonl": "data\\processed\\chunks_all_timelines.jsonl",
+  "dataset_sha256": "71bbfd31a29577634b7a3de642b2fe08d7c4ba8c5ac778520a5513fb2e133ed3",
+  "storage_mode": "single_collection",
+  "pinecone_namespace": "all_timelines",
+  "totals": {
+    "attempted": 944,
+    "succeeded": 0,
+    "failed": 944
+  },
+  "embedding": {
+    "model": "text-embedding-3-large",
+    "version": "unspecified",
+    "detected_model": ""
+  },
+  "runtime": {
+    "started_at": "2026-03-24T13:17:13.316075+00:00",
+    "ended_at": "2026-03-24T13:17:15.840241+00:00",
+    "seconds": 2.524
+  }
+}

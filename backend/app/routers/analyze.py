@@ -31,7 +31,13 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
         raise HTTPException(status_code=400, detail="Topic cannot be empty")
 
     try:
-        news_context = await fetch_news_context(request.topic)
+        news_context = await fetch_news_context(
+            request.topic,
+            timeline_id=request.timeline_id,
+            published_from=request.published_from,
+            published_to=request.published_to,
+            sources=request.sources,
+        )
 
         if news_context.get("empty_context"):
             return StoryData(

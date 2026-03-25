@@ -7,15 +7,56 @@ from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 import aiohttp
 
 from app.schemas import NewsItem
+from app.services.bedrock_embeddings import BedrockEmbeddingService
 from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
+from app.services.vector_search import OpenSearchVectorSearchService, VectorSearchRequest
 
 
 logger = logging.getLogger(__name__)
 
 NO_NEWS_CONTEXT: list[NewsItem] = []
 
+_embedding_service: BedrockEmbeddingService | None = None
+_vector_service: OpenSearchVectorSearchService | None = None
 
-async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]:
+
+def _get_embedding_service() -> BedrockEmbeddingService:
+    global _embedding_service
+    if _embedding_service is None:
+        _embedding_service = BedrockEmbeddingService()
+    return _embedding_service
+
+
+def _get_vector_service() -> OpenSearchVectorSearchService:
+    global _vector_service
+    if _vector_service is None:
+        _vector_service = OpenSearchVectorSearchService()
+    return _vector_service
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+async def fetch_news_context(
+    query: str,
+    max_results: int = 5,
+    timeline_id: str | None = None,
+    published_from: str | None = None,
+    published_to: str | None = None,
+    sources: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Fetch structured news context for a given topic using the rss2json proxy.
 
@@ -27,6 +68,21 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
     try:
         provider = "gnews"
         retrieval_queries = build_retrieval_queries(query, provider=provider)
+
+        vector_service = _get_vector_service()
+        if vector_service.enabled:
+            return await _fetch_vector_context(
+                query=query,
+                retrieval_queries=retrieval_queries,
+                max_results=max_results,
+                fetched_at=fetched_at,
+                timeline_id=timeline_id,
+                published_from=published_from,
+                published_to=published_to,
+                sources=sources,
+            )
+
+        logger.info("Vector backend not configured. Falling back to RSS news retrieval.")
         encoded_query = quote_plus(retrieval_queries["bm25"]["query"])
         url = f"https://www.rss2json.com/api.json?rss_url=https://news.google.com/rss/search?q={encoded_query}"
 
@@ -61,6 +117,65 @@ async def fetch_news_context(query: str, max_results: int = 5) -> dict[str, Any]
     except Exception as e:
         print(f"Error fetching news: {e}")
         return _empty_context(fetched_at, reason="fetch_exception")
+
+
+async def _fetch_vector_context(
+    *,
+    query: str,
+    retrieval_queries: dict[str, dict[str, Any]],
+    max_results: int,
+    fetched_at: datetime,
+    timeline_id: str | None,
+    published_from: str | None,
+    published_to: str | None,
+    sources: list[str] | None,
+) -> dict[str, Any]:
+    try:
+        embedding_service = _get_embedding_service()
+        vector_service = _get_vector_service()
+
+        query_text = retrieval_queries["vector"]["query"]
+        filters = retrieval_queries["vector"].get("filters", {})
+        policy_domains = sorted(set(filters.get("domain_in", [])))
+        policy_sources = sorted(set(filters.get("source_in", [])))
+        effective_sources = sorted({s.strip() for s in (sources or []) if s and s.strip()})
+        if not effective_sources:
+            effective_sources = policy_sources
+
+        embedded = await embedding_service.aembed_query(query_text)
+        search_request = VectorSearchRequest(
+            vector=embedded.embedding,
+            top_k=max_results,
+            timeline_id=(timeline_id or "").strip() or None,
+            published_from=_parse_iso_datetime(published_from),
+            published_to=_parse_iso_datetime(published_to),
+            domains=policy_domains or None,
+            sources=effective_sources or None,
+        )
+        hits = await vector_service.asearch(search_request)
+        if not hits:
+            return _empty_context(fetched_at, reason="no_vector_results")
+
+        items: list[NewsItem] = []
+        for hit in hits[:max_results]:
+            source = hit.get("_source", {}) if isinstance(hit.get("_source"), dict) else {}
+            item = _to_news_item_from_vector(source)
+            if item is not None:
+                items.append(item)
+
+        if not items:
+            return _empty_context(fetched_at, reason="no_documents_after_mandatory_filter")
+
+        return {
+            "prompt_context": json.dumps([item.model_dump() for item in items], ensure_ascii=False, indent=2),
+            "items": [item.model_dump() for item in items],
+            "fetched_at": fetched_at.isoformat(),
+            "empty_context": False,
+            "empty_context_reason": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Vector retrieval failed. Falling back to empty context", extra={"error": str(exc)})
+        return _empty_context(fetched_at, reason="vector_fetch_exception")
 
 
 def build_retrieval_queries(user_query: str, provider: str = "gnews") -> dict[str, dict[str, Any]]:
@@ -153,6 +268,36 @@ def _to_news_item(item: dict[str, Any], provider: str) -> NewsItem | None:
         source=mapped_source,
         provider=provider,
         published_at=item.get("pubDate", ""),
+    )
+
+
+def _to_news_item_from_vector(source_doc: dict[str, Any]) -> NewsItem | None:
+    url = str(source_doc.get("url") or "").strip()
+    normalized_link, hostname, reject_reason = _normalize_and_validate_url(url)
+    if reject_reason:
+        logger.info("Rejected vector result URL", extra={"reason": reject_reason, "url": url, "domain": hostname})
+        return None
+
+    parsed = urlparse(normalized_link or "")
+    domain = (parsed.hostname or "").lower() or hostname
+    if not domain:
+        return None
+
+    source_value = str(source_doc.get("source") or "").strip()
+    if not source_value:
+        source_value = get_source_policy().source_aliases.get(domain, domain)
+
+    published_at = str(source_doc.get("published_at") or "")
+    if not published_at:
+        published_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    return NewsItem(
+        title=str(source_doc.get("title") or ""),
+        url=normalized_link or "",
+        domain=domain,
+        source=source_value,
+        provider="pinecone",
+        published_at=published_at,
     )
 
 

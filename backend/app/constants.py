@@ -20,6 +20,10 @@ class AnalyzeRequest(BaseModel):
 
     topic: str
     mode: Optional[str] = None  # reserved for future use
+    timeline_id: Optional[str] = None
+    published_from: Optional[str] = None
+    published_to: Optional[str] = None
+    sources: Optional[list[str]] = None
 
 
 class PlayerProfileRequest(BaseModel):

@@ -94,7 +94,11 @@ Analyzes a story topic and returns structured narrative data.
 **Request:**
 ```json
 {
-  "topic": "The OpenAI board saga"
+  "topic": "The OpenAI board saga",
+  "timeline_id": "budget_2026",
+  "published_from": "2026-01-01T00:00:00Z",
+  "published_to": "2026-03-31T23:59:59Z",
+  "sources": ["ET", "TOI"]
 }
 ```
 
@@ -149,6 +153,26 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 The backend uses Pydantic Settings to load environment variables with proper validation.
 
+### Backend Vector Retrieval (Pinecone)
+To use Bedrock Titan embeddings + Pinecone vector search at runtime, configure:
+
+```
+AWS_REGION=us-east-1
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
+BEDROCK_EMBEDDING_DIMENSIONS=1024
+PINECONE_API_KEY=your_pinecone_api_key_here
+PINECONE_INDEX_HOST=your-index-host.svc.region.pinecone.io
+PINECONE_TOP_K=12
+PINECONE_NAMESPACE=all_timelines
+PINECONE_USE_TIMELINE_NAMESPACE=false
+```
+
+When Pinecone variables are not configured, the backend falls back to the RSS-based news retrieval path.
+
+Runtime permissions needed:
+- Bedrock Runtime invoke permissions for the configured embedding model.
+- Pinecone API key with query access to the configured index.
+
 ### Frontend
 The frontend no longer stores API keys. All authentication is handled server-side in the backend.
 
@@ -189,6 +213,30 @@ For production deployment:
 - Deploy the backend to a cloud platform (Heroku, AWS Lambda, GCP Cloud Run, etc.).
 - Use a reverse proxy (Nginx, Apache) or API Gateway to route frontend requests to `/api/*` endpoints and serve static frontend assets.
 - Store sensitive environment variables (API keys) in your deployment platform's secrets manager.
+
+## Vector Ingestion (Bedrock + Pinecone)
+
+Use the ingestion script to embed timeline chunks with Bedrock Titan and upsert them into Pinecone:
+
+```bash
+python scripts/load_vectors_bedrock_pinecone.py --input-jsonl data/processed/chunks_all_timelines.jsonl
+```
+
+Required environment variables:
+
+```
+AWS_REGION=us-east-1
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
+BEDROCK_EMBEDDING_DIMENSIONS=1024
+PINECONE_API_KEY=your_pinecone_api_key_here
+PINECONE_INDEX_HOST=your-index-host.svc.region.pinecone.io
+PINECONE_NAMESPACE=all_timelines
+```
+
+The script writes:
+- checkpoint: `data/processed/embed_checkpoint.json`
+- manifest: `data/processed/ingestion_manifest.json`
+- failures DLQ: `data/processed/embed_failures.jsonl`
 
 ---
 
