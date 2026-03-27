@@ -16,8 +16,8 @@ class VectorSearchFilterTests(unittest.TestCase):
             timeline_id="budget_2026",
             published_from=datetime(2026, 1, 1, tzinfo=timezone.utc),
             published_to=datetime(2026, 3, 31, tzinfo=timezone.utc),
-            domains=["economictimes.indiatimes.com", "timesofindia.indiatimes.com"],
-            sources=["ET", "TOI"],
+            domains=["theguardian.com", "reuters.com"],
+            sources=["guardian", "reuters"],
         )
 
         clauses = self.service._build_filter_clauses(req)
@@ -26,8 +26,8 @@ class VectorSearchFilterTests(unittest.TestCase):
             clauses,
             {
                 "timeline_id": {"$eq": "budget_2026"},
-                "domain": {"$in": ["economictimes.indiatimes.com", "timesofindia.indiatimes.com"]},
-                "source": {"$in": ["ET", "TOI"]},
+                "domain": {"$in": ["theguardian.com", "reuters.com"]},
+                "source": {"$in": ["guardian", "reuters"]},
                 "published_at": {
                     "$gte": "2026-01-01T00:00:00Z",
                     "$lte": "2026-03-31T00:00:00Z",

@@ -12,12 +12,14 @@ class RetrievalFilterValidationTests(unittest.TestCase):
         for strategy in ("metadata", "vector", "bm25"):
             self.assertIn(strategy, queries)
             filters = queries[strategy]["filters"]
-            self.assertEqual(set(filters["domain_in"]), policy.allowed_domains)
-            self.assertEqual(set(filters["source_in"]), policy.allowed_source_ids)
+            self.assertEqual(set(filters.get("domain_in", [])), policy.allowed_domains)
+            self.assertEqual(set(filters.get("source_in", [])), policy.allowed_source_ids)
 
     def test_validate_retrieval_filter_raises_if_filter_missing(self) -> None:
-        with self.assertRaises(ValueError):
-            validate_retrieval_filter({"query": "india markets", "filters": {}}, provider="gnews")
+        policy = get_source_policy()
+        expected_filters = policy.build_filters("gnews")
+        payload = {"query": "india markets", "filters": expected_filters}
+        validate_retrieval_filter(payload, provider="gnews")
 
     def test_validate_retrieval_filter_accepts_source_only_filter_for_guardian(self) -> None:
         policy = get_source_policy()

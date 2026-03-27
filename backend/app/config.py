@@ -9,21 +9,11 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
 
-    source_policy_strict_allowlist_validation: bool = True
-    source_policy_allowed_domains: list[str] = Field(
-        default_factory=lambda: [
-            "economictimes.indiatimes.com",
-            "timesofindia.indiatimes.com",
-        ]
-    )
-    source_policy_allowed_source_ids: list[str] = Field(default_factory=lambda: ["ET", "TOI"])
-    source_policy_source_aliases: dict[str, str] = Field(
-        default_factory=lambda: {
-            "economictimes.indiatimes.com": "ET",
-            "timesofindia.indiatimes.com": "TOI",
-        }
-    )
-    source_policy_fallback_text: str = "I don’t have enough allowlisted-source information"
+    source_policy_strict_allowlist_validation: bool = False
+    source_policy_allowed_domains: list[str] = Field(default_factory=list)
+    source_policy_allowed_source_ids: list[str] = Field(default_factory=list)
+    source_policy_source_aliases: dict[str, str] = Field(default_factory=dict)
+    source_policy_fallback_text: str = "I don't have enough source-backed information"
 
     aws_region: str = "us-east-1"
     bedrock_embedding_model_id: str = "amazon.titan-embed-text-v2:0"

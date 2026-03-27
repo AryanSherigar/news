@@ -1,10 +1,8 @@
 {
-  "last_success_index": 895,
-  "attempted": 944,
-  "succeeded": 0,
-  "failed": 944,
-  "embedding_attempts": 0,
-  "upsert_attempts": 0,
-  "embedding_model_detected": "",
-  "updated_at": "2026-03-24T13:17:15.777006+00:00"
+  "last_success_index": 919,
+  "attempted": 920,
+  "succeeded": 920,
+  "failed": 0,
+  "dataset_hash": "71bbfd31a29577634b7a3de642b2fe08d7c4ba8c5ac778520a5513fb2e133ed3",
+  "updated_at": "2026-03-25T12:03:21.065147+00:00"
 }

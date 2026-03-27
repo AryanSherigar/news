@@ -98,7 +98,7 @@ Analyzes a story topic and returns structured narrative data.
   "timeline_id": "budget_2026",
   "published_from": "2026-01-01T00:00:00Z",
   "published_to": "2026-03-31T23:59:59Z",
-  "sources": ["ET", "TOI"]
+  "sources": ["guardian", "reuters"]
 }
 ```
 
@@ -190,11 +190,11 @@ The frontend no longer stores API keys. All authentication is handled server-sid
 
 ## Caching
 
-The frontend caches analysis results in localStorage using the topic as a key. Cached results are served immediately without making new API requests. Clear your browser cache to force a fresh analysis.
+The frontend does not cache full story analysis payloads. Each analysis request fetches fresh results from the backend.
 
 ## Known Limitations & Future Scope
 
-- **No persistence:** Analysis results are not stored in a database (localStorage only). Consider adding a backend database for multi-user collaboration or long-term storage.
+- **No persistence:** Analysis results are not stored in a database. Consider adding a backend database for multi-user collaboration or long-term storage.
 - **No authentication:** The backend does not authenticate requests. In production, add API key or OAuth-based auth.
 - **Single provider model:** The backend currently uses Google Gemini. Adding cost-tracking, provider fallbacks, or multi-model orchestration is out of scope for this version.
 - **Synchronous processing:** Large stories may take time to analyze. Async job queues (Celery, Kafka) could improve responsiveness for production use.

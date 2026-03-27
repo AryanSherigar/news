@@ -1,21 +1,20 @@
 {
   "input_jsonl": "data\\processed\\chunks_all_timelines.jsonl",
-  "dataset_sha256": "71bbfd31a29577634b7a3de642b2fe08d7c4ba8c5ac778520a5513fb2e133ed3",
-  "storage_mode": "single_collection",
+  "rows_total": 920,
+  "attempted": 920,
+  "succeeded": 920,
+  "failed": 0,
+  "aws_region": "us-east-1",
+  "bedrock_model_id": "amazon.titan-embed-text-v2:0",
+  "bedrock_dimensions": 1024,
+  "bedrock_normalize": true,
+  "pinecone_index_host": "news-tracker-lht6a87.svc.aped-4627-b74a.pinecone.io",
+  "pinecone_storage_mode": "single_collection",
   "pinecone_namespace": "all_timelines",
-  "totals": {
-    "attempted": 944,
-    "succeeded": 0,
-    "failed": 944
-  },
-  "embedding": {
-    "model": "text-embedding-3-large",
-    "version": "unspecified",
-    "detected_model": ""
-  },
-  "runtime": {
-    "started_at": "2026-03-24T13:17:13.316075+00:00",
-    "ended_at": "2026-03-24T13:17:15.840241+00:00",
-    "seconds": 2.524
-  }
+  "started_at": "2026-03-25T11:48:52.955833+00:00",
+  "ended_at": "2026-03-25T12:03:20.690857+00:00",
+  "duration_sec": 867.735,
+  "dataset_sha256": "71bbfd31a29577634b7a3de642b2fe08d7c4ba8c5ac778520a5513fb2e133ed3",
+  "checkpoint_path": "data\\processed\\embed_checkpoint.json",
+  "dead_letter_path": "data\\processed\\embed_failures.jsonl"
 }

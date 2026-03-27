@@ -71,7 +71,7 @@ interface NewsItem {
   title: string;
   url: string;
   domain: string;
-  source: 'ET' | 'TOI';
+  source: string;
   published_at: string;
 }
 
@@ -386,7 +386,7 @@ export default function App() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  
+
   // Filters
   const [filterPlayerId, setFilterPlayerId] = useState<string | 'all'>('all');
   const [filterArcId, setFilterArcId] = useState<string | 'all'>('all');
@@ -420,11 +420,11 @@ export default function App() {
       if (filterImpact !== 'all' && event.impact !== filterImpact) return false;
       return true;
     });
-    
+
     if (sortOrder === 'desc') {
       filtered = [...filtered].reverse();
     }
-    
+
     return filtered;
   }, [data, filterPlayerId, filterArcId, filterImpact, sortOrder]);
 
@@ -653,8 +653,8 @@ export default function App() {
     if (!element) return;
     setIsDownloading(true);
     try {
-      const dataUrl = await htmlToImage.toPng(element, { 
-        pixelRatio: 2, 
+      const dataUrl = await htmlToImage.toPng(element, {
+        pixelRatio: 2,
         backgroundColor: isDarkMode ? '#020617' : '#f8fafc'
       });
       const link = document.createElement('a');
@@ -671,7 +671,7 @@ export default function App() {
   const handleTimelineClick = (event: StoryEvent) => {
     if (!data) return;
     const mentionedPlayerIds = Array.isArray(event.playersInvolved) ? event.playersInvolved : (event.playersInvolved ? [event.playersInvolved] : []);
-    
+
     if (mentionedPlayerIds.length === 0) {
       setSelectedEventId(null);
       return;
@@ -828,30 +828,6 @@ export default function App() {
     setDeepDiveCache({});
     setTopic(searchQuery);
 
-    const cacheKey = `story-arc-${searchQuery.toLowerCase().trim()}`;
-    const cached = localStorage.getItem(cacheKey);
-    
-    if (cached) {
-      try {
-        const rawData = JSON.parse(cached);
-        const parsedData: StoryData = {
-          players: Array.isArray(rawData.players) ? rawData.players : [],
-          relationships: Array.isArray(rawData.relationships) ? rawData.relationships : [],
-          timeline: Array.isArray(rawData.timeline) ? rawData.timeline : [],
-          arcs: Array.isArray(rawData.arcs) ? rawData.arcs : [],
-          insights: Array.isArray(rawData.insights) ? rawData.insights : [],
-          news_context: Array.isArray(rawData.news_context) ? rawData.news_context : [],
-          fetched_at: rawData.fetched_at ?? null
-        };
-        setData(parsedData);
-        setupGraph(parsedData);
-        setLoading(false);
-        return;
-      } catch (e) {
-        console.error("Cache parsing failed", e);
-      }
-    }
-
     try {
       // Call backend API to analyze the story
       const response = await fetch('/api/analyze', {
@@ -867,10 +843,8 @@ export default function App() {
       }
 
       const parsedData: StoryData = await response.json();
-      
+
       setData(parsedData);
-      localStorage.setItem(cacheKey, JSON.stringify(parsedData));
-      
       setupGraph(parsedData);
 
     } catch (err: any) {
@@ -972,7 +946,7 @@ export default function App() {
 
       {/* Main Content */}
       <main className="mx-auto w-full max-w-[1200px] px-3 pb-10 pt-2 md:px-6">
-        
+
         {/* Empty State */}
         {!data && !loading && !error && (
           <div className="flex flex-col items-center justify-center h-[60vh] text-center max-w-2xl mx-auto">
@@ -1152,15 +1126,15 @@ export default function App() {
                 </div>
               ) : null}
             </section>
-            
+
             {/* Filter Bar */}
             <div className="editorial-surface p-4 flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2 text-[var(--muted-fg)] font-medium text-sm mr-2">
                 <Filter className="w-4 h-4" /> Desk Filters:
               </div>
-              
-              <select 
-                value={filterPlayerId} 
+
+              <select
+                value={filterPlayerId}
                 onChange={(e) => setFilterPlayerId(e.target.value)}
                 className="rounded-lg border p-2 text-sm"
                 style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
@@ -1171,8 +1145,8 @@ export default function App() {
                 ))}
               </select>
 
-              <select 
-                value={filterArcId} 
+              <select
+                value={filterArcId}
                 onChange={(e) => setFilterArcId(e.target.value)}
                 className="rounded-lg border p-2 text-sm"
                 style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
@@ -1183,8 +1157,8 @@ export default function App() {
                 ))}
               </select>
 
-              <select 
-                value={filterImpact} 
+              <select
+                value={filterImpact}
                 onChange={(e) => setFilterImpact(e.target.value)}
                 className="rounded-lg border p-2 text-sm"
                 style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
@@ -1195,8 +1169,8 @@ export default function App() {
                 <option value="low">Low Impact</option>
               </select>
 
-              <select 
-                value={highlightRelType} 
+              <select
+                value={highlightRelType}
                 onChange={(e) => setHighlightRelType(e.target.value as any)}
                 className="rounded-lg border p-2 text-sm"
                 style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--line)', color: 'var(--page-fg)' }}
@@ -1205,9 +1179,9 @@ export default function App() {
                 <option value="conflict">Conflicts Only</option>
                 <option value="alliance">Alliances Only</option>
               </select>
-              
+
               {(filterPlayerId !== 'all' || filterArcId !== 'all' || filterImpact !== 'all' || highlightRelType !== 'all' || selectedEventId !== null) && (
-                <button 
+                <button
                   onClick={() => {
                     setFilterPlayerId('all');
                     setFilterArcId('all');
@@ -1224,40 +1198,40 @@ export default function App() {
             </div>
 
             <section className={cn("grid grid-cols-1 lg:grid-cols-2 gap-8", analysisView !== 'overview' && 'hidden')}>
-                <article className="editorial-surface p-6">
-                  <div className="flex items-center gap-2 mb-5">
-                    <Clock className="w-5 h-5 text-[var(--accent)]" />
-                    <h2 className="text-3xl leading-none">Timeline Highlights</h2>
-                  </div>
-                  <div className="space-y-4">
-                    {filteredTimeline.slice(0, 4).map((event) => (
-                      <div key={event.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
-                        <p className="text-xs font-medium" style={{ color: 'var(--muted-fg)' }}>{event.date}</p>
-                        <p className="mt-1 font-semibold">{event.title}</p>
-                        <p className="mt-1 text-sm" style={{ color: 'var(--muted-fg)' }}>{event.description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-                <article className="editorial-surface p-6">
-                  <div className="flex items-center gap-2 mb-5">
-                    <Eye className="w-5 h-5 text-[var(--accent)]" />
-                    <h2 className="text-3xl leading-none">Key Insights</h2>
-                  </div>
-                  <div className="space-y-4">
-                    {data.insights.slice(0, 4).map((insight, idx) => (
-                      <div key={`${insight.id}-${idx}`} className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
-                        <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--muted-fg)' }}>{insight.type.replace(/_/g, ' ')}</p>
-                        <p className="text-sm leading-relaxed">{insight.content}</p>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              </section>
+              <article className="editorial-surface p-6">
+                <div className="flex items-center gap-2 mb-5">
+                  <Clock className="w-5 h-5 text-[var(--accent)]" />
+                  <h2 className="text-3xl leading-none">Timeline Highlights</h2>
+                </div>
+                <div className="space-y-4">
+                  {filteredTimeline.slice(0, 4).map((event) => (
+                    <div key={event.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                      <p className="text-xs font-medium" style={{ color: 'var(--muted-fg)' }}>{event.date}</p>
+                      <p className="mt-1 font-semibold">{event.title}</p>
+                      <p className="mt-1 text-sm" style={{ color: 'var(--muted-fg)' }}>{event.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+              <article className="editorial-surface p-6">
+                <div className="flex items-center gap-2 mb-5">
+                  <Eye className="w-5 h-5 text-[var(--accent)]" />
+                  <h2 className="text-3xl leading-none">Key Insights</h2>
+                </div>
+                <div className="space-y-4">
+                  {data.insights.slice(0, 4).map((insight, idx) => (
+                    <div key={`${insight.id}-${idx}`} className="rounded-xl border p-4" style={{ borderColor: 'var(--line)' }}>
+                      <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--muted-fg)' }}>{insight.type.replace(/_/g, ' ')}</p>
+                      <p className="text-sm leading-relaxed">{insight.content}</p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </section>
 
-                {/* Top Row: Timeline & Sentiment */}
-                <div className={cn("grid grid-cols-1 lg:grid-cols-3 gap-8", analysisView !== 'deep' && 'hidden')}>
-              
+            {/* Top Row: Timeline & Sentiment */}
+            <div className={cn("grid grid-cols-1 lg:grid-cols-3 gap-8", analysisView !== 'deep' && 'hidden')}>
+
               {/* Timeline */}
               <div className="lg:col-span-1 editorial-surface p-6 flex flex-col h-[500px]">
                 <div className="flex items-center justify-between mb-6">
@@ -1266,7 +1240,7 @@ export default function App() {
                     <h2 className="text-3xl leading-none">Chronological Timeline</h2>
                   </div>
                   <div className="flex items-center gap-3">
-                    <button 
+                    <button
                       onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
                       className="text-xs font-medium flex items-center gap-1"
                       style={{ color: 'var(--accent)' }}
@@ -1279,8 +1253,8 @@ export default function App() {
                 </div>
                 <div ref={timelineRef} className="flex-1 overflow-y-auto pr-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
                   {filteredTimeline.map((event, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       onClick={() => handleTimelineClick(event)}
                       className={cn(
                         "relative pl-6 pb-6 last:pb-0 border-l-2 last:border-transparent cursor-pointer transition-colors rounded-r-xl -ml-2 pl-8",
@@ -1296,7 +1270,7 @@ export default function App() {
                         "absolute -left-[11px] top-1 w-5 h-5 rounded-full border-4 border-white dark:border-slate-900 transition-transform",
                         (activeEventIdx === idx || selectedEventId === event.id) && "scale-125",
                         event.sentiment === 'positive' ? "bg-emerald-500" :
-                        event.sentiment === 'negative' ? "bg-red-500" : "bg-slate-400 dark:bg-slate-500"
+                          event.sentiment === 'negative' ? "bg-red-500" : "bg-slate-400 dark:bg-slate-500"
                       )} />
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <div className="text-xs font-bold" style={{ color: 'var(--accent)' }}>{event.date}</div>
@@ -1324,11 +1298,11 @@ export default function App() {
                 </div>
                 <div className="flex-1 min-h-0">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart 
+                    <LineChart
                       data={(sortOrder === 'desc' ? [...filteredTimeline].reverse() : filteredTimeline).map(e => ({
                         ...e,
                         sentimentScore: e.sentiment === 'positive' ? 100 : e.sentiment === 'negative' ? -100 : 0
-                      }))} 
+                      }))}
                       margin={{ top: 20, right: 30, left: 0, bottom: 20 }}
                       onMouseMove={(e) => {
                         if (e.activeTooltipIndex !== undefined) {
@@ -1341,23 +1315,23 @@ export default function App() {
                       onMouseLeave={() => setActiveEventIdx(null)}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDarkMode ? '#334155' : '#e2e8f0'} />
-                      <XAxis 
-                        dataKey="date" 
+                      <XAxis
+                        dataKey="date"
                         axisLine={false}
                         tickLine={false}
                         tick={{ fontSize: 12, fill: isDarkMode ? '#b8b1a4' : '#696356' }}
                         dy={10}
                       />
-                      <YAxis 
-                        domain={[-100, 100]} 
+                      <YAxis
+                        domain={[-100, 100]}
                         axisLine={false}
                         tickLine={false}
                         tick={{ fontSize: 12, fill: isDarkMode ? '#b8b1a4' : '#696356' }}
                       />
-                      <RechartsTooltip 
-                        contentStyle={{ 
-                          borderRadius: '12px', 
-                          border: isDarkMode ? '1px solid #334155' : 'none', 
+                      <RechartsTooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: isDarkMode ? '1px solid #334155' : 'none',
                           boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
                           backgroundColor: isDarkMode ? '#1e293b' : '#ffffff',
                           color: isDarkMode ? '#f8fafc' : '#0f172a'
@@ -1365,10 +1339,10 @@ export default function App() {
                         labelStyle={{ fontWeight: 'bold', color: isDarkMode ? '#f8fafc' : '#0f172a', marginBottom: '4px' }}
                       />
                       <ReferenceLine y={0} stroke={isDarkMode ? '#475569' : '#94a3b8'} strokeDasharray="3 3" />
-                      <Line 
+                      <Line
                         name="Sentiment"
-                        type="monotone" 
-                        dataKey="sentimentScore" 
+                        type="monotone"
+                        dataKey="sentimentScore"
                         stroke={accentColor}
                         strokeWidth={3}
                         dot={{ r: 4, fill: accentColor, strokeWidth: 2, stroke: isDarkMode ? '#1a1917' : '#ffffff' }}
@@ -1379,10 +1353,10 @@ export default function App() {
                   </ResponsiveContainer>
                 </div>
               </div>
-                </div>
+            </div>
 
-                {/* Middle Row: Key Players Map */}
-                <div className={cn("editorial-surface p-6 h-[600px] flex flex-col", analysisView !== 'deep' && 'hidden')}>
+            {/* Middle Row: Key Players Map */}
+            <div className={cn("editorial-surface p-6 h-[600px] flex flex-col", analysisView !== 'deep' && 'hidden')}>
               <div className="flex items-center gap-2 mb-4">
                 <Users className="w-5 h-5 text-[var(--accent)]" />
                 <h2 className="text-3xl leading-none">Key Players & Relationships</h2>
@@ -1451,11 +1425,11 @@ export default function App() {
                 <div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-emerald-500"></div> Alliance</div>
                 <div className="flex items-center gap-2"><div className="w-4 h-0.5 bg-blue-500"></div> Neutral</div>
               </div>
-                </div>
+            </div>
 
-                {/* Bottom Row: Arcs & Insights */}
-                <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-8", analysisView !== 'deep' && 'hidden')}>
-              
+            {/* Bottom Row: Arcs & Insights */}
+            <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-8", analysisView !== 'deep' && 'hidden')}>
+
               {/* Story Arcs */}
               <div className="md:col-span-2 editorial-surface p-6">
                 <div className="flex items-center gap-2 mb-6">
@@ -1464,17 +1438,17 @@ export default function App() {
                 </div>
                 <div className="space-y-4">
                   {data.arcs.map((arc, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       onClick={() => setFilterArcId(filterArcId === arc.id ? 'all' : arc.id)}
                       className={cn(
                         "p-4 border rounded-xl hover:shadow-md transition-all cursor-pointer",
-                            filterArcId === arc.id ? "shadow-sm" : ""
+                        filterArcId === arc.id ? "shadow-sm" : ""
                       )}
-                          style={{
-                            borderColor: filterArcId === arc.id ? 'var(--line-strong)' : 'var(--line)',
-                            backgroundColor: filterArcId === arc.id ? 'var(--surface-muted)' : 'var(--surface)'
-                          }}
+                      style={{
+                        borderColor: filterArcId === arc.id ? 'var(--line-strong)' : 'var(--line)',
+                        backgroundColor: filterArcId === arc.id ? 'var(--surface-muted)' : 'var(--surface)'
+                      }}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="font-bold text-slate-900 dark:text-white text-base">{arc.title}</h3>
@@ -1515,7 +1489,7 @@ export default function App() {
                   {data.insights.map((insight, idx) => {
                     let Icon = AlertCircle;
                     let colorClass = "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 border-indigo-100 dark:border-indigo-900/50";
-                    
+
                     if (insight.type === 'who_is_winning') {
                       Icon = Trophy;
                       colorClass = "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-900/50";
@@ -1541,7 +1515,7 @@ export default function App() {
                 </div>
               </div>
 
-                </div>
+            </div>
           </div>
         )}
 

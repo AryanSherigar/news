@@ -37,11 +37,11 @@ class SourceValidatorTests(unittest.TestCase):
             return_value=_policy_fixture(strict=True),
         ):
             canonical, domain, error = canonicalize_and_validate_source_url(
-                "http://economictimes.indiatimes.com/story?a=1&utm_source=x&fbclid=abc"
+                "http://theguardian.com/story?a=1&utm_source=x&fbclid=abc"
             )
 
-        self.assertEqual(canonical, "https://economictimes.indiatimes.com/story?a=1")
-        self.assertEqual(domain, "economictimes.indiatimes.com")
+        self.assertEqual(canonical, "https://theguardian.com/story?a=1")
+        self.assertEqual(domain, "theguardian.com")
         self.assertIsNone(error)
 
     def test_validate_story_sources_or_raise_rejects_non_allowlisted_domain_in_strict_mode(self) -> None:
@@ -55,7 +55,7 @@ class SourceValidatorTests(unittest.TestCase):
                 validate_story_sources_or_raise(story)
 
     def test_validate_profile_sources_or_raise_canonicalizes_nested_profile_citation(self) -> None:
-        profile = _make_profile("http://timesofindia.indiatimes.com/article?fbclid=123")
+        profile = _make_profile("http://reuters.com/article?fbclid=123")
 
         with patch(
             "app.services.source_validator.get_source_policy",
@@ -65,7 +65,7 @@ class SourceValidatorTests(unittest.TestCase):
 
         self.assertEqual(
             profile.timeline_contributions[0].citations[0].url,
-            "https://timesofindia.indiatimes.com/article",
+            "https://reuters.com/article",
         )
 
     def test_validate_story_sources_or_raise_accepts_mixed_provider_domains_in_broad_mode(self) -> None:
@@ -120,8 +120,8 @@ class SourceValidatorTests(unittest.TestCase):
 
 def _policy_fixture(
     strict: bool,
-    allowed_domains: tuple[str, ...] = ("economictimes.indiatimes.com", "timesofindia.indiatimes.com"),
-    allowed_source_ids: tuple[str, ...] = ("ET", "TOI"),
+    allowed_domains: tuple[str, ...] = ("theguardian.com", "reuters.com"),
+    allowed_source_ids: tuple[str, ...] = ("guardian", "reuters"),
 ) -> SourcePolicy:
     return SourcePolicy(
         allowed_domains=frozenset(allowed_domains),
@@ -209,7 +209,7 @@ def _make_story(url: str) -> StoryData:
                 state_of_play="State",
                 why_now="Why",
                 watchlist=["Watch"],
-                citations=[_make_citation("https://economictimes.indiatimes.com/insight")],
+                citations=[_make_citation("https://theguardian.com/insight")],
             )
         ],
     )
@@ -229,7 +229,7 @@ def _make_profile(url: str) -> PlayerProfile:
                 description="Description",
                 relationship_type=RelationshipType.ALLIANCE,
                 strength=0.7,
-                citations=[_make_citation("https://timesofindia.indiatimes.com/alliance")],
+                citations=[_make_citation("https://reuters.com/alliance")],
             )
         ],
         conflicts=[
@@ -239,7 +239,7 @@ def _make_profile(url: str) -> PlayerProfile:
                 description="Description",
                 relationship_type=RelationshipType.CONFLICT,
                 strength=0.8,
-                citations=[_make_citation("https://economictimes.indiatimes.com/conflict")],
+                citations=[_make_citation("https://theguardian.com/conflict")],
             )
         ],
         timeline_contributions=[
@@ -253,7 +253,7 @@ def _make_profile(url: str) -> PlayerProfile:
         ],
         risk_score=0.4,
         outlook="Outlook",
-        citations=[_make_citation("https://timesofindia.indiatimes.com/profile")],
+        citations=[_make_citation("https://reuters.com/profile")],
     )
 
 
