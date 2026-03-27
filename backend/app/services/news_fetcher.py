@@ -71,7 +71,7 @@ async def fetch_news_context(
 
         vector_service = _get_vector_service()
         if vector_service.enabled:
-            return await _fetch_vector_context(
+            vector_result = await _fetch_vector_context(
                 query=query,
                 retrieval_queries=retrieval_queries,
                 max_results=max_results,
@@ -81,38 +81,33 @@ async def fetch_news_context(
                 published_to=published_to,
                 sources=sources,
             )
+            if not vector_result.get("empty_context"):
+                return vector_result
+
+            reason = vector_result.get("empty_context_reason")
+            if reason in {"no_vector_results", "vector_fetch_exception"}:
+                logger.info(
+                    "Vector retrieval returned no usable context. Falling back to RSS news retrieval.",
+                    extra={"query": query, "reason": reason},
+                )
+                return await _fetch_rss_context(
+                    query=query,
+                    max_results=max_results,
+                    fetched_at=fetched_at,
+                    retrieval_queries=retrieval_queries,
+                    provider=provider,
+                )
+
+            return vector_result
 
         logger.info("Vector backend not configured. Falling back to RSS news retrieval.")
-        encoded_query = quote_plus(retrieval_queries["bm25"]["query"])
-        url = f"https://www.rss2json.com/api.json?rss_url=https://news.google.com/rss/search?q={encoded_query}"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                if response.status != 200:
-                    return _empty_context(fetched_at, reason="upstream_error")
-
-                data = await response.json()
-                items = data.get("items", [])[:max_results]
-                if not items:
-                    return _empty_context(fetched_at, reason="no_results")
-
-                news_items = []
-                for item in items:
-                    news_item = _to_news_item(item, provider=provider)
-                    if news_item is not None:
-                        news_items.append(news_item)
-
-                if not news_items:
-                    logger.warning("No documents remained after source-policy filtering", extra={"query": query})
-                    return _empty_context(fetched_at, reason="no_documents_after_mandatory_filter")
-
-                return {
-                    "prompt_context": json.dumps([item.model_dump() for item in news_items], ensure_ascii=False, indent=2),
-                    "items": [item.model_dump() for item in news_items],
-                    "fetched_at": fetched_at.isoformat(),
-                    "empty_context": False,
-                    "empty_context_reason": None,
-                }
+        return await _fetch_rss_context(
+            query=query,
+            max_results=max_results,
+            fetched_at=fetched_at,
+            retrieval_queries=retrieval_queries,
+            provider=provider,
+        )
 
     except Exception as e:
         print(f"Error fetching news: {e}")
@@ -176,6 +171,64 @@ async def _fetch_vector_context(
     except Exception as exc:  # noqa: BLE001
         logger.exception("Vector retrieval failed. Falling back to empty context", extra={"error": str(exc)})
         return _empty_context(fetched_at, reason="vector_fetch_exception")
+
+
+async def fetch_live_news_context(
+    query: str,
+    max_results: int = 5,
+) -> dict[str, Any]:
+    """Fetch live internet news context through RSS retrieval regardless of vector availability."""
+    fetched_at = datetime.now(timezone.utc)
+    provider = "gnews"
+
+    retrieval_queries = build_retrieval_queries(query, provider=provider)
+    return await _fetch_rss_context(
+        query=query,
+        max_results=max_results,
+        fetched_at=fetched_at,
+        retrieval_queries=retrieval_queries,
+        provider=provider,
+    )
+
+
+async def _fetch_rss_context(
+    *,
+    query: str,
+    max_results: int,
+    fetched_at: datetime,
+    retrieval_queries: dict[str, dict[str, Any]],
+    provider: str,
+) -> dict[str, Any]:
+    encoded_query = quote_plus(retrieval_queries["bm25"]["query"])
+    url = f"https://www.rss2json.com/api.json?rss_url=https://news.google.com/rss/search?q={encoded_query}"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+            if response.status != 200:
+                return _empty_context(fetched_at, reason="upstream_error")
+
+            data = await response.json()
+            items = data.get("items", [])[:max_results]
+            if not items:
+                return _empty_context(fetched_at, reason="no_results")
+
+            news_items = []
+            for item in items:
+                news_item = _to_news_item(item, provider=provider)
+                if news_item is not None:
+                    news_items.append(news_item)
+
+            if not news_items:
+                logger.warning("No documents remained after source-policy filtering", extra={"query": query})
+                return _empty_context(fetched_at, reason="no_documents_after_mandatory_filter")
+
+            return {
+                "prompt_context": json.dumps([item.model_dump() for item in news_items], ensure_ascii=False, indent=2),
+                "items": [item.model_dump() for item in news_items],
+                "fetched_at": fetched_at.isoformat(),
+                "empty_context": False,
+                "empty_context_reason": None,
+            }
 
 
 def build_retrieval_queries(user_query: str, provider: str = "gnews") -> dict[str, dict[str, Any]]:

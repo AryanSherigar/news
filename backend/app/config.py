@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
-    gemini_api_key: str
+    gemini_api_key: str = ""
 
     source_policy_strict_allowlist_validation: bool = False
     source_policy_allowed_domains: list[str] = Field(default_factory=list)
@@ -19,6 +19,17 @@ class Settings(BaseSettings):
     bedrock_embedding_model_id: str = "amazon.titan-embed-text-v2:0"
     bedrock_embedding_dimensions: int = 1024
     bedrock_embedding_normalize: bool = True
+    bedrock_llm_default_model_id: str = "amazon.nova-pro-v1:0"
+    bedrock_llm_simple_model_id: str = "amazon.nova-2-lite-v1:0"
+    bedrock_llm_chat_model_id: str = "amazon.nova-2-lite-v1:0"
+    bedrock_llm_voice_model_id: str = "amazon.nova-2-sonic-v1:0"
+    bedrock_llm_fallback_model_id: str = "mistral.mistral-large-3-675b-instruct"
+    bedrock_llm_temperature: float = 0.2
+    bedrock_llm_simple_context_char_threshold: int = 6000
+    bedrock_llm_enable_fallback: bool = True
+    voice_sample_rate_hz: int = 16000
+    voice_output_chunk_bytes: int = 3200
+    voice_tts_voice_id: str = "Joanna"
 
     opensearch_host: str = ""
     opensearch_index_name: str = "timeline_chunks"

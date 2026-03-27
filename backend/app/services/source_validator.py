@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from app.schemas import Citation, PlayerProfile, StoryData
+from app.schemas import Citation, ChatAnswer, PlayerProfile, StoryData
 from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
 
 
@@ -123,6 +123,17 @@ def validate_profile_sources_or_raise(profile: PlayerProfile) -> PlayerProfile:
         raise SourcePolicyViolationError(violations)
 
     return profile
+
+
+def validate_chat_sources_or_raise(answer: ChatAnswer) -> ChatAnswer:
+    """Validate chat response citations against configured source policy."""
+    violations: list[CitationViolation] = []
+    _validate_citations_in_place(answer.citations, "chat.citations", violations)
+
+    if violations:
+        raise SourcePolicyViolationError(violations)
+
+    return answer
 
 
 def _validate_citations_in_place(

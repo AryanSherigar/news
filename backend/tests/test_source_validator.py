@@ -4,6 +4,7 @@ from unittest.mock import patch
 from app.schemas import (
     Arc,
     ArcStatus,
+    ChatAnswer,
     Citation,
     ImpactLevel,
     Insight,
@@ -24,6 +25,7 @@ from app.services.source_validator import (
     CitationViolation,
     SourcePolicyViolationError,
     canonicalize_and_validate_source_url,
+    validate_chat_sources_or_raise,
     validate_profile_sources_or_raise,
     validate_story_sources_or_raise,
     violations_to_response_payload,
@@ -83,6 +85,24 @@ class SourceValidatorTests(unittest.TestCase):
         self.assertEqual(story.timeline[0].citations[1].url, "https://gdeltproject.org/data")
         self.assertEqual(story.insights[0].citations[0].url, "https://news.google.com/articles/xyz")
 
+    def test_validate_chat_sources_or_raise_canonicalizes_chat_citation(self) -> None:
+        answer = ChatAnswer(
+            message="Summary",
+            citations=[_make_citation("http://reuters.com/story?utm_source=abc")],
+            outside_topic=False,
+            outside_topic_note=None,
+            confidence=0.9,
+            suggested_followups=[],
+        )
+
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True),
+        ):
+            validate_chat_sources_or_raise(answer)
+
+        self.assertEqual(answer.citations[0].url, "https://reuters.com/story")
+
     def test_validate_story_sources_or_raise_rejects_mixed_provider_domains_in_strict_mode(self) -> None:
         story = _make_story("https://www.theguardian.com/world/2026/mar/24/update")
         story.insights[0].citations = [_make_citation("https://news.google.com/articles/xyz")]
@@ -95,7 +115,7 @@ class SourceValidatorTests(unittest.TestCase):
                 validate_story_sources_or_raise(story)
 
         rejected_domains = {violation.domain for violation in exc_info.exception.violations}
-        self.assertSetEqual(rejected_domains, {"theguardian.com", "news.google.com"})
+        self.assertSetEqual(rejected_domains, {"news.google.com"})
 
     def test_violations_payload_is_policy_aware_for_configured_sources(self) -> None:
         violation = CitationViolation(

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import health, analyze, profile
+from app.routers import analyze, chat, health, profile, voice
 
 app = FastAPI(
     title="Story Arc Tracker API",
@@ -28,6 +28,8 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(analyze.router)
 app.include_router(profile.router)
+app.include_router(chat.router)
+app.include_router(voice.router)
 
 if __name__ == "__main__":
     import uvicorn

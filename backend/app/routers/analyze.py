@@ -60,6 +60,19 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
 
     except SourcePolicyViolationError as e:
         raise HTTPException(status_code=422, detail=violations_to_response_payload(e.violations, provider="gnews"))
+    except ValueError as e:
+        if "Analyze output failed quality checks" in str(e):
+            # Return a safe empty payload instead of surfacing transient model-format issues.
+            return StoryData(
+                timeline=[],
+                players=[],
+                relationships=[],
+                arcs=[],
+                insights=[],
+                news_context=[],
+                fetched_at=None,
+            )
+        raise
     except HTTPException:
         raise
     except Exception as e:

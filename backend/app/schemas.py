@@ -197,3 +197,27 @@ class PlayerProfile(BaseModel):
     risk_score: float = Field(..., ge=0, le=1, description="Strategic risk assessment from 0 to 1")
     outlook: str = Field(..., description="Prediction of future trajectory")
     citations: list[Citation] = Field(default_factory=list, description="Supporting evidence or source references")
+
+
+class ChatAnswer(BaseModel):
+    """Structured chatbot response for topic Q&A."""
+
+    message: str = Field(..., min_length=1, description="Assistant answer for the current user turn")
+    citations: list[Citation] = Field(
+        default_factory=list,
+        min_length=1,
+        description="Supporting evidence citations for the answer"
+    )
+    outside_topic: bool = Field(
+        default=False,
+        description="True if the user question is outside analyzed topic context"
+    )
+    outside_topic_note: str | None = Field(
+        default=None,
+        description="Short note when query is outside topic context"
+    )
+    confidence: float = Field(..., ge=0, le=1, description="Grounding confidence estimate from 0 to 1")
+    suggested_followups: list[str] = Field(
+        default_factory=list,
+        description="Optional suggested follow-up questions for the user"
+    )

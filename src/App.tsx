@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, type FormEvent, useRef, useMemo } fro
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper, Menu, ArrowUpRight } from 'lucide-react';
+import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper, Menu, ArrowUpRight, MessageCircle, Send, Mic, MicOff, PhoneOff, Volume2 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -122,6 +122,105 @@ interface StoryData {
   news_context?: NewsItem[];
   fetched_at?: string | null;
 }
+
+interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+interface ChatUiMessage extends ChatHistoryMessage {
+  citations?: Citation[];
+  outsideTopicNote?: string | null;
+}
+
+interface ChatAnswer {
+  message: string;
+  citations: Citation[];
+  outside_topic: boolean;
+  outside_topic_note?: string | null;
+  confidence: number;
+  suggested_followups: string[];
+}
+
+interface ChatStreamDeltaEvent {
+  type: 'delta';
+  delta: string;
+}
+
+interface ChatStreamFinalEvent {
+  type: 'final';
+  answer: ChatAnswer;
+}
+
+interface ChatStreamErrorEvent {
+  type: 'error';
+  status?: number;
+  detail?: string | { message?: string };
+}
+
+type ChatStreamEvent = ChatStreamDeltaEvent | ChatStreamFinalEvent | ChatStreamErrorEvent;
+
+interface VoiceSessionReadyEvent {
+  type: 'session_ready';
+  model: string;
+}
+
+interface VoiceAssistantDeltaEvent {
+  type: 'assistant_delta';
+  delta: string;
+}
+
+interface VoiceAssistantFinalEvent {
+  type: 'assistant_final';
+  answer: ChatAnswer;
+  turn_id?: string;
+  metrics?: {
+    first_token_latency_ms?: number | null;
+    first_audio_latency_ms?: number | null;
+    final_latency_ms?: number | null;
+  };
+}
+
+interface VoiceAssistantAudioStartEvent {
+  type: 'assistant_audio_start';
+  sample_rate_hz: number;
+  channels: number;
+  encoding: string;
+  turn_id?: string;
+}
+
+interface VoiceAssistantAudioChunkMetaEvent {
+  type: 'assistant_audio_chunk_meta';
+  seq: number;
+  bytes: number;
+  turn_id?: string;
+}
+
+interface VoiceAssistantAudioEndEvent {
+  type: 'assistant_audio_end';
+  chunks: number;
+  turn_id?: string;
+}
+
+interface VoiceBargeInAckEvent {
+  type: 'barge_in_ack';
+  reason: string;
+}
+
+interface VoiceSessionEndedEvent {
+  type: 'session_ended';
+}
+
+type VoiceServerEvent =
+  | VoiceSessionReadyEvent
+  | VoiceAssistantDeltaEvent
+  | VoiceAssistantFinalEvent
+  | VoiceAssistantAudioStartEvent
+  | VoiceAssistantAudioChunkMetaEvent
+  | VoiceAssistantAudioEndEvent
+  | VoiceBargeInAckEvent
+  | ChatStreamErrorEvent
+  | VoiceSessionEndedEvent;
 
 type RelationshipLane = Relationship['type'];
 
@@ -310,6 +409,8 @@ const LOADING_MESSAGES = [
   "Finalizing visual narrative..."
 ];
 
+const CHAT_HISTORY_LIMIT = 6;
+
 const EDITORIAL_CATEGORIES = ['World', 'Business', 'Tech', 'Policy', 'Culture'];
 
 const getRelationshipLane = (
@@ -383,6 +484,19 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [analysisView, setAnalysisView] = useState<'overview' | 'deep'>('overview');
   const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatUiMessage[]>([]);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [voiceConnecting, setVoiceConnecting] = useState(false);
+  const [voiceConnected, setVoiceConnected] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceInterimText, setVoiceInterimText] = useState('');
+  const [assistantSpeaking, setAssistantSpeaking] = useState(false);
+  const [voiceLatencyLabel, setVoiceLatencyLabel] = useState<string>('');
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -396,6 +510,17 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   const timelineRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const voiceSocketRef = useRef<WebSocket | null>(null);
+  const voiceManualStopRef = useRef(false);
+  const micAudioContextRef = useRef<AudioContext | null>(null);
+  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const playbackAudioContextRef = useRef<AudioContext | null>(null);
+  const playbackCursorRef = useRef(0);
+  const activePlaybackSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const accentColor = isDarkMode ? '#d33a3f' : '#b61f24';
 
   useEffect(() => {
@@ -463,7 +588,7 @@ export default function App() {
 
   const compactGraphGroups = useMemo<GraphGrouping[]>(() => {
     if (!data) return [];
-    const arcById = new Map(data.arcs.map((arc) => [arc.id, arc]));
+    const arcById = new Map<string, Arc>(data.arcs.map((arc) => [arc.id, arc]));
     const componentByPlayer = buildConnectedComponents(data.players, data.relationships);
     const arcForPlayer = new Map<string, string>();
 
@@ -489,6 +614,12 @@ export default function App() {
 
     return [...groups.values()];
   }, [data]);
+
+  const chatTimelineSlice = useMemo(() => {
+    if (!data) return [];
+    const candidateTimeline = filteredTimeline.length > 0 ? filteredTimeline : data.timeline;
+    return candidateTimeline.slice(0, 18);
+  }, [data, filteredTimeline]);
 
   // Apply Filters to Graph
   useEffect(() => {
@@ -592,6 +723,52 @@ export default function App() {
     }
   }, [activeEventIdx]);
 
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, chatLoading]);
+
+  useEffect(() => {
+    const speechCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const audioCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    const mediaDevicesSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
+    setVoiceSupported(Boolean(speechCtor) && Boolean(audioCtor) && mediaDevicesSupported);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (voiceSocketRef.current && voiceSocketRef.current.readyState === WebSocket.OPEN) {
+        voiceSocketRef.current.close();
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      if (micProcessorRef.current) {
+        micProcessorRef.current.disconnect();
+      }
+      if (micSourceRef.current) {
+        micSourceRef.current.disconnect();
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (micAudioContextRef.current) {
+        void micAudioContextRef.current.close();
+      }
+      activePlaybackSourcesRef.current.forEach((source) => {
+        try {
+          source.stop();
+        } catch {
+          // no-op
+        }
+      });
+      if (playbackAudioContextRef.current) {
+        void playbackAudioContextRef.current.close();
+      }
+    };
+  }, []);
+
   const onNodeClick = useCallback((_: any, node: any) => {
     setFilterPlayerId(node.id);
     setSelectedEventId(null);
@@ -678,6 +855,554 @@ export default function App() {
     }
 
     setSelectedEventId(event.id);
+  };
+
+  const downsampleFloat32ToInt16 = useCallback((input: Float32Array, inputRate: number, outputRate: number) => {
+    if (outputRate >= inputRate) {
+      const out = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i += 1) {
+        const clamped = Math.max(-1, Math.min(1, input[i]));
+        out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      }
+      return out;
+    }
+
+    const ratio = inputRate / outputRate;
+    const outputLength = Math.max(1, Math.floor(input.length / ratio));
+    const output = new Int16Array(outputLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+
+    while (offsetResult < output.length) {
+      const nextOffsetBuffer = Math.min(input.length, Math.round((offsetResult + 1) * ratio));
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer; i += 1) {
+        accum += input[i];
+        count += 1;
+      }
+      const sample = count > 0 ? accum / count : 0;
+      const clamped = Math.max(-1, Math.min(1, sample));
+      output[offsetResult] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      offsetResult += 1;
+      offsetBuffer = nextOffsetBuffer;
+    }
+
+    return output;
+  }, []);
+
+  const stopAssistantPlayback = useCallback((emitBargeIn: boolean) => {
+    activePlaybackSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+      } catch {
+        // no-op
+      }
+    });
+    activePlaybackSourcesRef.current.clear();
+
+    const playbackCtx = playbackAudioContextRef.current;
+    if (playbackCtx) {
+      playbackCursorRef.current = playbackCtx.currentTime;
+    }
+
+    setAssistantSpeaking(false);
+
+    if (emitBargeIn) {
+      const socket = voiceSocketRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: 'barge_in',
+          reason: 'user_interrupt',
+        }));
+      }
+    }
+  }, []);
+
+  const playPcmChunk = useCallback(async (buffer: ArrayBuffer) => {
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+
+    if (!playbackAudioContextRef.current) {
+      playbackAudioContextRef.current = new AudioCtx({ sampleRate: 16000 });
+      playbackCursorRef.current = playbackAudioContextRef.current.currentTime;
+    }
+
+    const ctx = playbackAudioContextRef.current;
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    const int16 = new Int16Array(buffer);
+    if (int16.length === 0) return;
+
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i += 1) {
+      float32[i] = int16[i] / 0x8000;
+    }
+
+    const audioBuffer = ctx.createBuffer(1, float32.length, 16000);
+    audioBuffer.copyToChannel(float32, 0);
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+
+    const scheduledAt = Math.max(playbackCursorRef.current, ctx.currentTime + 0.015);
+    source.start(scheduledAt);
+    playbackCursorRef.current = scheduledAt + audioBuffer.duration;
+    setAssistantSpeaking(true);
+
+    activePlaybackSourcesRef.current.add(source);
+    source.onended = () => {
+      activePlaybackSourcesRef.current.delete(source);
+      if (activePlaybackSourcesRef.current.size === 0 && ctx.currentTime >= playbackCursorRef.current - 0.02) {
+        setAssistantSpeaking(false);
+      }
+    };
+  }, []);
+
+  const startRawAudioCapture = useCallback(async () => {
+    const socket = voiceSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setVoiceError('Voice session is not connected.');
+      return;
+    }
+
+    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) {
+      setVoiceError('Audio context is not supported in this browser.');
+      return;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+
+    const micCtx = new AudioCtx();
+    const source = micCtx.createMediaStreamSource(stream);
+    const processor = micCtx.createScriptProcessor(2048, 1, 1);
+    const sinkGain = micCtx.createGain();
+    sinkGain.gain.value = 0;
+
+    processor.onaudioprocess = (event: AudioProcessingEvent) => {
+      const ws = voiceSocketRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const input = event.inputBuffer.getChannelData(0);
+      let rms = 0;
+      for (let i = 0; i < input.length; i += 1) {
+        rms += input[i] * input[i];
+      }
+      rms = Math.sqrt(rms / input.length);
+
+      if (assistantSpeaking && rms > 0.04) {
+        stopAssistantPlayback(true);
+      }
+
+      const int16 = downsampleFloat32ToInt16(input, micCtx.sampleRate, 16000);
+      ws.send(int16.buffer);
+    };
+
+    source.connect(processor);
+    processor.connect(sinkGain);
+    sinkGain.connect(micCtx.destination);
+
+    micStreamRef.current = stream;
+    micAudioContextRef.current = micCtx;
+    micSourceRef.current = source;
+    micProcessorRef.current = processor;
+  }, [assistantSpeaking, downsampleFloat32ToInt16, stopAssistantPlayback]);
+
+  const stopRawAudioCapture = useCallback(() => {
+    if (micProcessorRef.current) {
+      micProcessorRef.current.disconnect();
+      micProcessorRef.current.onaudioprocess = null;
+      micProcessorRef.current = null;
+    }
+
+    if (micSourceRef.current) {
+      micSourceRef.current.disconnect();
+      micSourceRef.current = null;
+    }
+
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
+
+    if (micAudioContextRef.current) {
+      void micAudioContextRef.current.close();
+      micAudioContextRef.current = null;
+    }
+  }, []);
+
+  const startVoiceSession = useCallback(() => {
+    if (!data || !topic.trim()) return;
+    if (voiceSocketRef.current && voiceSocketRef.current.readyState === WebSocket.OPEN) return;
+
+    setVoiceError(null);
+    setVoiceConnecting(true);
+
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const socket = new WebSocket(`${protocol}://${window.location.host}/api/voice/chat`);
+    socket.binaryType = 'arraybuffer';
+    voiceSocketRef.current = socket;
+
+    socket.onopen = () => {
+      setVoiceConnecting(false);
+      setVoiceConnected(true);
+      socket.send(JSON.stringify({
+        type: 'session_start',
+        topic,
+        timeline_slice: chatTimelineSlice,
+        history: [...chatMessages].slice(-CHAT_HISTORY_LIMIT).map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      }));
+    };
+
+    socket.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        void playPcmChunk(event.data);
+        return;
+      }
+
+      let payload: VoiceServerEvent;
+      try {
+        payload = JSON.parse(event.data) as VoiceServerEvent;
+      } catch {
+        return;
+      }
+
+      if (payload.type === 'assistant_delta') {
+        setChatMessages((current) => {
+          if (current.length === 0) return current;
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (!last || last.role !== 'assistant') return current;
+          next[next.length - 1] = {
+            ...last,
+            content: `${last.content}${payload.delta}`,
+          };
+          return next;
+        });
+        return;
+      }
+
+      if (payload.type === 'assistant_final') {
+        setChatMessages((current) => {
+          if (current.length === 0) return current;
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (!last || last.role !== 'assistant') return current;
+          next[next.length - 1] = {
+            ...last,
+            content: payload.answer.message,
+            citations: payload.answer.citations,
+            outsideTopicNote: payload.answer.outside_topic
+              ? payload.answer.outside_topic_note ?? 'This question is outside the analyzed topic context.'
+              : null,
+          };
+          return next;
+        });
+        setChatLoading(false);
+        if (payload.metrics) {
+          const finalMs = payload.metrics.final_latency_ms != null ? Math.round(payload.metrics.final_latency_ms) : null;
+          const firstAudioMs = payload.metrics.first_audio_latency_ms != null ? Math.round(payload.metrics.first_audio_latency_ms) : null;
+          if (finalMs != null || firstAudioMs != null) {
+            setVoiceLatencyLabel(`first audio ${firstAudioMs ?? '-'}ms | final ${finalMs ?? '-'}ms`);
+          }
+        }
+        return;
+      }
+
+      if (payload.type === 'assistant_audio_start') {
+        setAssistantSpeaking(true);
+        return;
+      }
+
+      if (payload.type === 'assistant_audio_end') {
+        if (activePlaybackSourcesRef.current.size === 0) {
+          setAssistantSpeaking(false);
+        }
+        return;
+      }
+
+      if (payload.type === 'barge_in_ack') {
+        return;
+      }
+
+      if (payload.type === 'error') {
+        const detail = typeof payload.detail === 'string'
+          ? payload.detail
+          : payload.detail?.message || `Voice chat failed with status ${payload.status ?? 500}`;
+        setVoiceError(detail);
+        setChatLoading(false);
+      }
+    };
+
+    socket.onclose = () => {
+      setVoiceConnected(false);
+      setVoiceConnecting(false);
+      setVoiceListening(false);
+      setVoiceInterimText('');
+      stopRawAudioCapture();
+      stopAssistantPlayback(false);
+    };
+
+    socket.onerror = () => {
+      setVoiceError('Voice connection failed. Please try again.');
+      setVoiceConnecting(false);
+      setVoiceConnected(false);
+      stopRawAudioCapture();
+      stopAssistantPlayback(false);
+    };
+  }, [chatMessages, chatTimelineSlice, data, playPcmChunk, stopAssistantPlayback, stopRawAudioCapture, topic]);
+
+  const stopVoiceSession = useCallback(() => {
+    voiceManualStopRef.current = true;
+    setVoiceListening(false);
+    setVoiceInterimText('');
+    setVoiceLatencyLabel('');
+    stopRawAudioCapture();
+    stopAssistantPlayback(false);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    if (voiceSocketRef.current) {
+      if (voiceSocketRef.current.readyState === WebSocket.OPEN) {
+        voiceSocketRef.current.send(JSON.stringify({ type: 'session_end' }));
+      }
+      voiceSocketRef.current.close();
+      voiceSocketRef.current = null;
+    }
+  }, [stopAssistantPlayback, stopRawAudioCapture]);
+
+  const sendVoiceUtterance = useCallback((utterance: string) => {
+    const socket = voiceSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setVoiceError('Voice session is not connected.');
+      return;
+    }
+
+    const normalized = utterance.trim();
+    if (!normalized) return;
+
+    setChatMessages((current) => ([
+      ...current,
+      { role: 'user', content: normalized },
+      { role: 'assistant', content: '' },
+    ]));
+    setChatLoading(true);
+    setVoiceInterimText('');
+
+    socket.send(JSON.stringify({
+      type: 'user_utterance',
+      text: normalized,
+    }));
+  }, []);
+
+  const toggleVoiceListening = useCallback(() => {
+    if (!voiceConnected) {
+      setVoiceError('Connect voice mode before speaking.');
+      return;
+    }
+
+    const recognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!recognitionCtor) {
+      setVoiceError('Browser speech recognition is not supported.');
+      return;
+    }
+
+    if (voiceListening && recognitionRef.current) {
+      voiceManualStopRef.current = true;
+      recognitionRef.current.stop();
+      stopRawAudioCapture();
+      setVoiceListening(false);
+      return;
+    }
+
+    voiceManualStopRef.current = false;
+    const recognition = new recognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setVoiceListening(true);
+      setVoiceError(null);
+      void startRawAudioCapture();
+    };
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      let finalText = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const transcript = result[0]?.transcript ?? '';
+        if (result.isFinal) {
+          finalText += transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+
+      setVoiceInterimText(interim.trim());
+      if (finalText.trim()) {
+        sendVoiceUtterance(finalText.trim());
+      }
+    };
+
+    recognition.onerror = () => {
+      setVoiceError('Microphone transcription failed. Please retry.');
+      setVoiceListening(false);
+      stopRawAudioCapture();
+    };
+
+    recognition.onend = () => {
+      setVoiceListening(false);
+      stopRawAudioCapture();
+      if (voiceConnected && !voiceManualStopRef.current) {
+        recognition.start();
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  }, [sendVoiceUtterance, startRawAudioCapture, stopRawAudioCapture, voiceConnected, voiceListening]);
+
+  const sendChatMessage = async () => {
+    if (!data || !topic.trim()) return;
+
+    const userMessage = chatInput.trim();
+    if (!userMessage) return;
+
+    const nextUserMessage: ChatUiMessage = {
+      role: 'user',
+      content: userMessage,
+    };
+    const nextAssistantMessage: ChatUiMessage = {
+      role: 'assistant',
+      content: '',
+    };
+
+    setChatMessages((current) => [...current, nextUserMessage, nextAssistantMessage]);
+    setChatInput('');
+    setChatLoading(true);
+    setChatError(null);
+
+    try {
+      const historyPayload: ChatHistoryMessage[] = [...chatMessages, nextUserMessage]
+        .slice(-CHAT_HISTORY_LIMIT)
+        .map((message) => ({ role: message.role, content: message.content }));
+
+      const response = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          topic,
+          message: userMessage,
+          history: historyPayload,
+          timeline_slice: chatTimelineSlice,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+
+      if (!response.body) {
+        throw new Error('Streaming is not supported by this browser.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const applyDelta = (delta: string) => {
+        setChatMessages((current) => {
+          if (current.length === 0) return current;
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (!last || last.role !== 'assistant') return current;
+          next[next.length - 1] = {
+            ...last,
+            content: `${last.content}${delta}`,
+          };
+          return next;
+        });
+      };
+
+      const applyFinal = (answer: ChatAnswer) => {
+        setChatMessages((current) => {
+          if (current.length === 0) return current;
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (!last || last.role !== 'assistant') return current;
+          next[next.length - 1] = {
+            ...last,
+            content: answer.message,
+            citations: answer.citations,
+            outsideTopicNote: answer.outside_topic
+              ? answer.outside_topic_note ?? 'This question is outside the analyzed topic context.'
+              : null,
+          };
+          return next;
+        });
+      };
+
+      const processLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const event = JSON.parse(trimmed) as ChatStreamEvent;
+
+        if (event.type === 'delta') {
+          applyDelta(event.delta);
+          return;
+        }
+
+        if (event.type === 'final') {
+          applyFinal(event.answer);
+          return;
+        }
+
+        if (event.type === 'error') {
+          if (typeof event.detail === 'string') {
+            throw new Error(event.detail);
+          }
+          throw new Error(event.detail?.message || `Chat stream failed with status ${event.status ?? 500}`);
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        lines.forEach(processLine);
+      }
+
+      if (buffer.trim()) {
+        processLine(buffer);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setChatError(err.message || 'Failed to get chat response.');
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   const setupGraph = (parsedData: StoryData) => {
@@ -819,6 +1544,8 @@ export default function App() {
   const fetchData = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
 
+    stopVoiceSession();
+
     setLoading(true);
     setError(null);
     setData(null);
@@ -826,6 +1553,13 @@ export default function App() {
     setDeepDivePlayer(null);
     setDeepDiveContent(null);
     setDeepDiveCache({});
+    setChatOpen(false);
+    setChatInput('');
+    setChatError(null);
+    setChatMessages([]);
+    setVoiceError(null);
+    setVoiceInterimText('');
+    setAssistantSpeaking(false);
     setTopic(searchQuery);
 
     try {
@@ -846,6 +1580,12 @@ export default function App() {
 
       setData(parsedData);
       setupGraph(parsedData);
+      setChatMessages([
+        {
+          role: 'assistant',
+          content: `I am ready to discuss ${searchQuery}. Ask about key players, timeline events, relationships, or what might happen next.`,
+        },
+      ]);
 
     } catch (err: any) {
       console.error(err);
@@ -897,6 +1637,12 @@ export default function App() {
                 >
                   {isDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   Export
+                </button>
+              )}
+              {data && (
+                <button onClick={() => setChatOpen(true)} className="editorial-pill">
+                  <MessageCircle className="w-4 h-4" />
+                  Chat Topic
                 </button>
               )}
               <button
@@ -1516,6 +2262,119 @@ export default function App() {
               </div>
 
             </div>
+          </div>
+        )}
+
+        {chatOpen && data && (
+          <div className="fixed inset-0 z-40 flex justify-end bg-black/30 backdrop-blur-[1px]">
+            <aside className="h-full w-full max-w-xl border-l bg-[var(--surface)] shadow-xl flex flex-col" style={{ borderColor: 'var(--line)' }}>
+              <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--line)' }}>
+                <div>
+                  <p className="editorial-kicker">Topic Chat</p>
+                  <h3 className="text-lg leading-tight">{topic}</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    stopVoiceSession();
+                    setChatOpen(false);
+                  }}
+                  className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  aria-label="Close chat"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="px-4 py-3 border-b flex flex-wrap items-center gap-2" style={{ borderColor: 'var(--line)' }}>
+                <button
+                  onClick={voiceConnected ? stopVoiceSession : startVoiceSession}
+                  disabled={voiceConnecting || !voiceSupported}
+                  className="editorial-pill disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {voiceConnected ? <PhoneOff className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  {voiceConnected ? 'Disconnect Voice' : (voiceConnecting ? 'Connecting...' : 'Connect Voice')}
+                </button>
+                <button
+                  onClick={toggleVoiceListening}
+                  disabled={!voiceConnected || !voiceSupported}
+                  className="editorial-pill disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {voiceListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                  {voiceListening ? 'Stop Mic' : 'Start Mic'}
+                </button>
+                <span className="text-xs" style={{ color: 'var(--muted-fg)' }}>
+                  {voiceSupported ? (voiceListening ? 'Listening...' : (voiceConnected ? 'Ready for voice' : 'Voice mode idle')) : 'Speech recognition is unavailable in this browser.'}
+                </span>
+                {assistantSpeaking ? (
+                  <span className="text-xs text-emerald-700 dark:text-emerald-400">Assistant speaking</span>
+                ) : null}
+                {voiceLatencyLabel ? (
+                  <span className="text-xs" style={{ color: 'var(--muted-fg)' }}>{voiceLatencyLabel}</span>
+                ) : null}
+              </div>
+
+              <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                {chatMessages.map((message, idx) => (
+                  <article key={`${message.role}-${idx}`} className={cn('rounded-xl border p-3', message.role === 'user' ? 'ml-8 bg-slate-100/80 dark:bg-slate-800/70' : 'mr-8 bg-white/80 dark:bg-slate-900/70')} style={{ borderColor: 'var(--line)' }}>
+                    <p className="text-[10px] uppercase tracking-wider font-semibold mb-1" style={{ color: 'var(--muted-fg)' }}>
+                      {message.role === 'user' ? 'You' : 'Assistant'}
+                    </p>
+                    <p className="text-sm leading-relaxed">{message.content}</p>
+                    {message.outsideTopicNote ? (
+                      <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Outside topic note: {message.outsideTopicNote}</p>
+                    ) : null}
+                    {message.citations?.length ? (
+                      <div className="mt-2">
+                        <CitationList citations={message.citations} compact />
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+                {chatLoading && (
+                  <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--muted-fg)' }}>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Thinking through the latest context...
+                  </div>
+                )}
+                {voiceInterimText ? (
+                  <div className="text-sm italic" style={{ color: 'var(--muted-fg)' }}>
+                    You are saying: {voiceInterimText}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="border-t p-4 space-y-3" style={{ borderColor: 'var(--line)' }}>
+                {chatError ? (
+                  <p className="text-sm text-red-700 dark:text-red-400">{chatError}</p>
+                ) : null}
+                {voiceError ? (
+                  <p className="text-sm text-red-700 dark:text-red-400">{voiceError}</p>
+                ) : null}
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Ask a question about this topic..."
+                    className="min-h-[44px] max-h-32 flex-1 rounded-xl border p-3 text-sm outline-none resize-y"
+                    style={{ borderColor: 'var(--line)', backgroundColor: 'var(--surface-strong)' }}
+                    disabled={chatLoading}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendChatMessage();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={sendChatMessage}
+                    disabled={chatLoading || !chatInput.trim()}
+                    className="rounded-xl bg-black px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white dark:text-black"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </aside>
           </div>
         )}
 

@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas import Relationship, StoryEvent
 
@@ -37,3 +37,19 @@ class PlayerProfileRequest(BaseModel):
     timeline_slice: list[StoryEvent]
     relationships: list[Relationship]
     player_neighborhood: list[RelatedPlayerContext]
+
+
+class ChatMessageInput(BaseModel):
+    """Chat history message passed by the client for stateless chat turns."""
+
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """Request model for topic-aware chat endpoint."""
+
+    topic: str
+    message: str
+    history: list[ChatMessageInput] = Field(default_factory=list)
+    timeline_slice: list[StoryEvent] = Field(default_factory=list)
