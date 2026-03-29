@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from app.constants import AnalyzeRequest
@@ -11,6 +13,7 @@ from app.services.source_validator import (
 )
 
 router = APIRouter(prefix="/api", tags=["analysis"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/analyze", response_model=StoryData)
@@ -76,7 +79,11 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error analyzing story: {e}")
+        logger.exception(
+            "Error analyzing story for topic=%s timeline_id=%s",
+            request.topic,
+            request.timeline_id,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Failed to analyze story: {str(e)}"
