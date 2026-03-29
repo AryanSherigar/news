@@ -22,6 +22,28 @@ class VoiceRouterTests(unittest.TestCase):
         self.assertEqual(response["status"], 400)
         self.assertIn("not initialized", response["detail"])
 
+    def test_voice_session_invalid_json_returns_error_and_keeps_socket_open(self) -> None:
+        with self.client.websocket_connect('/api/voice/chat') as websocket:
+            websocket.send_text("{")
+            error_response = websocket.receive_json()
+
+            self.assertEqual(error_response["type"], "error")
+            self.assertEqual(error_response["status"], 400)
+            self.assertEqual(error_response["detail"], "Invalid JSON payload")
+
+            websocket.send_text(
+                json.dumps(
+                    {
+                        "type": "session_start",
+                        "topic": "US Iran conflict",
+                        "timeline_slice": [{"id": "event-1"}],
+                        "history": [],
+                    }
+                )
+            )
+            ready_response = websocket.receive_json()
+            self.assertEqual(ready_response["type"], "session_ready")
+
     def test_voice_session_rejects_when_duplex_disabled(self) -> None:
         disabled_settings = SimpleNamespace(
             voice_duplex_enabled=False,

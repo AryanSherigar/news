@@ -500,7 +500,17 @@ async def voice_chat(websocket: WebSocket) -> None:
             if not text_payload:
                 continue
 
-            payload = json.loads(text_payload)
+            try:
+                payload = json.loads(text_payload)
+            except json.JSONDecodeError:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "status": 400,
+                        "detail": "Invalid JSON payload",
+                    }
+                )
+                continue
             event_type = payload.get("type")
 
             if event_type == "session_start":
