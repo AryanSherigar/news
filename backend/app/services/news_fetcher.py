@@ -110,8 +110,12 @@ async def fetch_news_context(
             provider=provider,
         )
 
-    except Exception as e:
-        print(f"Error fetching news: {e}")
+    except Exception:
+        logger.exception(
+            "Error fetching news context for query=%s timeline_id=%s",
+            query,
+            timeline_id,
+        )
         return _empty_context(fetched_at, reason="fetch_exception")
 
 

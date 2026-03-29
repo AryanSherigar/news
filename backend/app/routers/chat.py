@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -18,6 +19,7 @@ from app.services.source_validator import (
 )
 
 router = APIRouter(prefix="/api", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 def _validate_chat_request(request: ChatRequest) -> None:
@@ -156,7 +158,12 @@ async def chat(request: ChatRequest) -> ChatAnswer:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error generating topic chat response: {e}")
+        logger.exception(
+            "Error generating topic chat response for topic=%s message_length=%d history_count=%d",
+            request.topic,
+            len(request.message),
+            len(request.history),
+        )
         raise HTTPException(status_code=500, detail=f"Failed to generate chat response: {str(e)}")
 
 
@@ -205,7 +212,12 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
                 }
             ) + "\n"
         except Exception as e:
-            print(f"Error generating topic chat stream response: {e}")
+            logger.exception(
+                "Error generating topic chat stream response for topic=%s message_length=%d history_count=%d",
+                request.topic,
+                len(request.message),
+                len(request.history),
+            )
             yield json.dumps(
                 {
                     "type": "error",

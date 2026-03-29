@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException
 
@@ -12,6 +13,7 @@ from app.services.source_validator import (
 )
 
 router = APIRouter(prefix="/api", tags=["profiles"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/player-profile", response_model=PlayerProfile)
@@ -60,7 +62,12 @@ async def get_player_profile(request: PlayerProfileRequest) -> PlayerProfile:
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error generating player profile: {e}")
+        logger.exception(
+            "Error generating player profile for topic=%s player_id=%s player_name=%s",
+            request.topic,
+            request.player_id,
+            request.player_name,
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate player profile: {str(e)}"
