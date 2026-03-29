@@ -9,9 +9,8 @@ from fastapi.responses import StreamingResponse
 from app.config import get_settings
 from app.constants import ChatRequest
 from app.schemas import ChatAnswer
-from app.services.news_fetcher import fetch_live_news_context, fetch_news_context
 from app.services.ai_orchestration import generate_topic_chat_response
-from app.services.source_policy import build_prompt_policy_context
+from app.services.response_refresh import refresh_answer_with_fresh_news_if_needed
 from app.services.source_validator import (
     SourcePolicyViolationError,
     validate_chat_sources_or_raise,
@@ -33,52 +32,6 @@ def _validate_chat_request(request: ChatRequest) -> None:
         raise HTTPException(status_code=400, detail="Timeline context is required for chat")
 
 
-def _timeline_has_thin_context(timeline_context: list[dict[str, Any]]) -> bool:
-    citation_count = 0
-    for event in timeline_context:
-        citations = event.get("citations") if isinstance(event, dict) else []
-        if isinstance(citations, list):
-            citation_count += len(citations)
-
-    return len(timeline_context) < 2 or citation_count < 2
-
-
-def _to_fresh_news_evidence(items: list[dict[str, Any]]) -> list[dict[str, str]]:
-    evidence: list[dict[str, str]] = []
-
-    for item in items:
-        source_name = str(item.get("source") or item.get("domain") or "news_source").strip()
-        url = str(item.get("url") or "").strip()
-        published_at = str(item.get("published_at") or "").strip()
-        title = str(item.get("title") or "").strip()
-        snippet = title or "Freshly retrieved news item relevant to the topic."
-
-        if source_name and url and published_at and snippet:
-            evidence.append(
-                {
-                    "source_name": source_name,
-                    "url": url,
-                    "published_at": published_at,
-                    "snippet": snippet,
-                }
-            )
-
-    return evidence
-
-
-def _should_refresh_news_context(answer: ChatAnswer, fallback_text: str) -> bool:
-    normalized_fallback = fallback_text.strip().lower()
-    normalized_message = answer.message.strip().lower()
-
-    if not normalized_message:
-        return True
-    if normalized_fallback and normalized_message == normalized_fallback:
-        return True
-    if answer.confidence < 0.45:
-        return True
-    return False
-
-
 async def _generate_answer_with_optional_fresh_news(request: ChatRequest) -> ChatAnswer:
     timeline_context = [event.model_dump(mode="json") for event in request.timeline_slice]
     history = [message.model_dump(mode="json") for message in request.history]
@@ -95,43 +48,13 @@ async def _generate_answer_with_optional_fresh_news(request: ChatRequest) -> Cha
         story_context=base_story_context,
     )
 
-    policy_context = build_prompt_policy_context()
-    should_try_fresh_news = _timeline_has_thin_context(timeline_context) or _should_refresh_news_context(
-        answer,
-        policy_context.fallback_text,
-    )
-    if not should_try_fresh_news:
-        return answer
-
-    news_payload = await fetch_news_context(
-        query=f"{request.topic} {request.message}".strip(),
-        max_results=6,
-    )
-    if news_payload.get("empty_context"):
-        news_payload = await fetch_live_news_context(
-            query=f"{request.topic} {request.message}".strip(),
-            max_results=6,
-        )
-        if news_payload.get("empty_context"):
-            return answer
-
-    fresh_items = news_payload.get("items", [])
-    if not isinstance(fresh_items, list) or not fresh_items:
-        return answer
-
-    fresh_evidence = _to_fresh_news_evidence([item for item in fresh_items if isinstance(item, dict)])
-    if not fresh_evidence:
-        return answer
-
-    enriched_story_context = {
-        **base_story_context,
-        "fresh_news_evidence": fresh_evidence,
-    }
-    return await generate_topic_chat_response(
+    return await refresh_answer_with_fresh_news_if_needed(
         topic=request.topic,
         message=request.message,
         history=history,
-        story_context=enriched_story_context,
+        story_context=base_story_context,
+        answer=answer,
+        generate_response=generate_topic_chat_response,
     )
 
 

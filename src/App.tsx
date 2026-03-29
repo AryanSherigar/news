@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, type FormEvent, useRef, useMemo } fro
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ReactFlow, Background, Controls, MiniMap, useNodesState, useEdgesState, MarkerType, Handle, Position } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper, Menu, ArrowUpRight, MessageCircle, Send, Mic, MicOff, PhoneOff, Volume2 } from 'lucide-react';
+import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, TrendingDown, ExternalLink, Tag, Download, X, Sun, Moon, Filter, Newspaper, ArrowUpRight, MessageCircle, Send, Mic, MicOff, PhoneOff, Volume2 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -412,8 +412,6 @@ const LOADING_MESSAGES = [
 ];
 
 const CHAT_HISTORY_LIMIT = 6;
-
-const EDITORIAL_CATEGORIES = ['World', 'Business', 'Tech', 'Policy', 'Culture'];
 
 const getRelationshipLane = (
   playerId: string,
@@ -1728,13 +1726,6 @@ export default function App() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
             <div className="flex items-center gap-3">
               <span className="editorial-pill bg-black text-white dark:bg-white dark:text-black">No 5,810</span>
-              <div className="hidden items-center gap-3 text-xs text-[var(--muted-fg)] md:flex">
-                {EDITORIAL_CATEGORIES.map((category) => (
-                  <button key={category} className="hover:text-[var(--page-fg)] transition-colors">
-                    {category}
-                  </button>
-                ))}
-              </div>
             </div>
 
             <div className="text-center">
@@ -1745,10 +1736,6 @@ export default function App() {
             </div>
 
             <div className="flex items-center justify-end gap-2">
-              <button className="editorial-pill">
-                Subscribe for EUR2.50
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </button>
               {data && (
                 <button
                   onClick={handleDownload}
@@ -1771,9 +1758,6 @@ export default function App() {
                 aria-label="Toggle dark mode"
               >
                 {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-              <button className="editorial-pill" aria-label="Open menu">
-                <Menu className="h-4 w-4" />
               </button>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -81,6 +81,9 @@ class VoiceRouterTests(unittest.TestCase):
         )
 
         with patch("app.routers.voice.generate_topic_voice_response", return_value=answer), patch(
+            "app.routers.voice.refresh_answer_with_fresh_news_if_needed",
+            new=AsyncMock(return_value=answer),
+        ), patch(
             "app.routers.voice.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
         ), patch(
@@ -182,6 +185,9 @@ class VoiceRouterTests(unittest.TestCase):
         )
 
         with patch("app.routers.voice.generate_topic_voice_response", side_effect=[first_answer, second_answer]), patch(
+            "app.routers.voice.refresh_answer_with_fresh_news_if_needed",
+            new=AsyncMock(side_effect=[first_answer, second_answer]),
+        ), patch(
             "app.routers.voice.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
         ), patch(
@@ -242,6 +248,9 @@ class VoiceRouterTests(unittest.TestCase):
         )
 
         with patch("app.routers.voice.generate_topic_voice_response", return_value=answer), patch(
+            "app.routers.voice.refresh_answer_with_fresh_news_if_needed",
+            new=AsyncMock(return_value=answer),
+        ), patch(
             "app.routers.voice.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
         ), patch(
@@ -297,6 +306,9 @@ class VoiceRouterTests(unittest.TestCase):
         )
 
         with patch("app.routers.voice.generate_topic_voice_response", return_value=answer), patch(
+            "app.routers.voice.refresh_answer_with_fresh_news_if_needed",
+            new=AsyncMock(return_value=answer),
+        ), patch(
             "app.routers.voice.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
         ), patch(
@@ -370,6 +382,77 @@ class VoiceRouterTests(unittest.TestCase):
 
             self.assertTrue(saw_user_interim)
             self.assertTrue(saw_user_final)
+
+    def test_voice_uses_refresh_helper_before_finalizing_answer(self) -> None:
+        first_answer = ChatAnswer(
+            message="I don't have enough source-backed information",
+            citations=[
+                Citation(
+                    source_name="Reuters",
+                    url="https://reuters.com/story",
+                    published_at="2026-03-27T00:00:00Z",
+                    snippet="Evidence snippet",
+                )
+            ],
+            outside_topic=False,
+            outside_topic_note=None,
+            confidence=0.2,
+            suggested_followups=[],
+        )
+        refreshed_answer = ChatAnswer(
+            message="Fresh evidence indicates talks resumed this morning.",
+            citations=[
+                Citation(
+                    source_name="Guardian",
+                    url="https://theguardian.com/world/story",
+                    published_at="2026-03-27T08:00:00Z",
+                    snippet="Talks resumed in latest briefing",
+                )
+            ],
+            outside_topic=False,
+            outside_topic_note=None,
+            confidence=0.71,
+            suggested_followups=[],
+        )
+
+        refresh_mock = AsyncMock(return_value=refreshed_answer)
+
+        with patch("app.routers.voice.generate_topic_voice_response", return_value=first_answer), patch(
+            "app.routers.voice.refresh_answer_with_fresh_news_if_needed",
+            new=refresh_mock,
+        ), patch(
+            "app.routers.voice.validate_chat_sources_or_raise",
+            side_effect=lambda value: value,
+        ), patch(
+            "app.routers.voice.synthesize_pcm_audio",
+            return_value=b"\x00\x00" * 200,
+        ):
+            with self.client.websocket_connect('/api/voice/chat') as websocket:
+                websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "session_start",
+                            "topic": "US Iran conflict",
+                            "timeline_slice": [{"id": "event-1"}],
+                            "history": [],
+                        }
+                    )
+                )
+                self.assertEqual(websocket.receive_json()["type"], "session_ready")
+
+                websocket.send_text(json.dumps({"type": "user_utterance", "text": "Any updates?"}))
+
+                for _ in range(100):
+                    event = websocket.receive()
+                    text = event.get("text")
+                    if not text:
+                        continue
+                    payload = json.loads(text)
+                    if payload.get("type") == "assistant_final":
+                        self.assertEqual(payload["answer"]["message"], refreshed_answer.message)
+                        break
+
+        self.assertEqual(refresh_mock.await_count, 1)
 
 
 if __name__ == "__main__":

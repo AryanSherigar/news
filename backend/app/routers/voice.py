@@ -13,6 +13,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.config import get_settings
 from app.schemas import ChatAnswer
 from app.services.ai_orchestration import generate_topic_voice_response
+from app.services.response_refresh import refresh_answer_with_fresh_news_if_needed
 from app.services.source_validator import (
     SourcePolicyViolationError,
     validate_chat_sources_or_raise,
@@ -273,6 +274,14 @@ async def voice_chat(websocket: WebSocket) -> None:
                 message=user_message,
                 history=turn_history,
                 story_context=story_context,
+            )
+            answer = await refresh_answer_with_fresh_news_if_needed(
+                topic=topic,
+                message=user_message,
+                history=turn_history,
+                story_context=story_context,
+                answer=answer,
+                generate_response=generate_topic_voice_response,
             )
             validate_chat_sources_or_raise(answer)
 

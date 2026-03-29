@@ -1,6 +1,6 @@
 import unittest
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -43,21 +43,21 @@ class ChatRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "Message cannot be empty")
 
     def test_chat_returns_structured_response(self) -> None:
-        mock_response = {
-            "message": "The latest escalation happened after sanctions expanded.",
-            "citations": [
-                {
-                    "source_name": "Reuters",
-                    "url": "https://reuters.com/story",
-                    "published_at": "2026-03-27T00:00:00Z",
-                    "snippet": "Evidence snippet",
-                }
+        mock_response = ChatAnswer(
+            message="The latest escalation happened after sanctions expanded.",
+            citations=[
+                Citation(
+                    source_name="Reuters",
+                    url="https://reuters.com/story",
+                    published_at="2026-03-27T00:00:00Z",
+                    snippet="Evidence snippet",
+                )
             ],
-            "outside_topic": False,
-            "outside_topic_note": None,
-            "confidence": 0.76,
-            "suggested_followups": ["Which actor is most exposed?"],
-        }
+            outside_topic=False,
+            outside_topic_note=None,
+            confidence=0.76,
+            suggested_followups=["Which actor is most exposed?"],
+        )
 
         payload = {
             "topic": "US Iran conflict",
@@ -84,11 +84,8 @@ class ChatRouterTests(unittest.TestCase):
         }
 
         with patch("app.routers.chat.generate_topic_chat_response", return_value=mock_response), patch(
-            "app.routers.chat.fetch_news_context",
-            return_value={"empty_context": True, "items": []},
-        ), patch(
-            "app.routers.chat.fetch_live_news_context",
-            return_value={"empty_context": True, "items": []},
+            "app.routers.chat.refresh_answer_with_fresh_news_if_needed",
+            new=AsyncMock(return_value=mock_response),
         ), patch(
             "app.routers.chat.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
@@ -97,7 +94,7 @@ class ChatRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["message"], mock_response["message"])
+        self.assertEqual(body["message"], mock_response.message)
         self.assertEqual(body["citations"][0]["url"], "https://reuters.com/story")
 
     def test_chat_stream_returns_delta_and_final_events(self) -> None:
@@ -142,11 +139,8 @@ class ChatRouterTests(unittest.TestCase):
         )
 
         with patch("app.routers.chat.generate_topic_chat_response", return_value=chat_answer), patch(
-            "app.routers.chat.fetch_news_context",
-            return_value={"empty_context": True, "items": []},
-        ), patch(
-            "app.routers.chat.fetch_live_news_context",
-            return_value={"empty_context": True, "items": []},
+            "app.routers.chat.refresh_answer_with_fresh_news_if_needed",
+            new=AsyncMock(return_value=chat_answer),
         ), patch(
             "app.routers.chat.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
@@ -169,7 +163,7 @@ class ChatRouterTests(unittest.TestCase):
         self.assertEqual(rebuilt_message, chat_answer.message)
         self.assertEqual(events[-1]["answer"]["message"], chat_answer.message)
 
-    def test_chat_retries_with_fresh_news_when_first_answer_is_fallback(self) -> None:
+    def test_chat_uses_refresh_helper_when_first_answer_is_fallback(self) -> None:
         payload = {
             "topic": "US Iran conflict",
             "message": "Any latest updates?",
@@ -225,29 +219,14 @@ class ChatRouterTests(unittest.TestCase):
             suggested_followups=["Who initiated the talks?"],
         )
 
+        refresh_mock = AsyncMock(return_value=second_answer)
+
         with patch(
             "app.routers.chat.generate_topic_chat_response",
-            side_effect=[first_answer, second_answer],
+            return_value=first_answer,
         ) as mock_chat, patch(
-            "app.routers.chat.fetch_news_context",
-            return_value={
-                "empty_context": True,
-                "items": [],
-            },
-        ), patch(
-            "app.routers.chat.fetch_live_news_context",
-            return_value={
-                "empty_context": False,
-                "items": [
-                    {
-                        "title": "Diplomatic round announced",
-                        "url": "https://theguardian.com/world/story",
-                        "domain": "theguardian.com",
-                        "source": "guardian",
-                        "published_at": "2026-03-27T08:00:00Z",
-                    }
-                ],
-            },
+            "app.routers.chat.refresh_answer_with_fresh_news_if_needed",
+            new=refresh_mock,
         ), patch(
             "app.routers.chat.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
@@ -256,7 +235,8 @@ class ChatRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["message"], second_answer.message)
-        self.assertEqual(mock_chat.call_count, 2)
+        self.assertEqual(mock_chat.call_count, 1)
+        self.assertEqual(refresh_mock.await_count, 1)
 
 
 if __name__ == "__main__":

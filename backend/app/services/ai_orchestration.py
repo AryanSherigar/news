@@ -102,6 +102,23 @@ def _coerce_first_citation_from_story_context(story_context: dict[str, Any]) -> 
     return None
 
 
+def _build_low_confidence_cited_answer(*, citation: Citation, voice_mode: bool) -> ChatAnswer:
+    published_label = citation.published_at.split("T", maxsplit=1)[0] if citation.published_at else "recent reporting"
+    message = f"Based on {citation.source_name} reporting ({published_label}), {citation.snippet}"
+    note = "Voice response generated with conservative citation-only fallback due to model formatting issues."
+    if not voice_mode:
+        note = "Response generated with conservative citation-only fallback due to model formatting issues."
+
+    return ChatAnswer(
+        message=message,
+        citations=[citation],
+        outside_topic=False,
+        outside_topic_note=note,
+        confidence=0.35,
+        suggested_followups=["Can you ask about a specific event from this source?"],
+    )
+
+
 async def _invoke_with_optional_fallback(
     *,
     prompt: Any,
@@ -236,14 +253,7 @@ async def generate_topic_chat_response(
         if fallback_citation is None:
             raise ValueError("Chat output failed quality checks: no usable citation in context") from e
 
-        return ChatAnswer(
-            message=policy_context.fallback_text,
-            citations=[fallback_citation],
-            outside_topic=False,
-            outside_topic_note="Response generated with conservative fallback due to model formatting issues.",
-            confidence=0.2,
-            suggested_followups=["Can you ask a narrower question about a specific timeline event?"],
-        )
+        return _build_low_confidence_cited_answer(citation=fallback_citation, voice_mode=False)
 
 
 async def generate_topic_voice_response(
@@ -281,11 +291,4 @@ async def generate_topic_voice_response(
         if fallback_citation is None:
             raise ValueError("Voice chat output failed quality checks: no usable citation in context") from e
 
-        return ChatAnswer(
-            message=policy_context.fallback_text,
-            citations=[fallback_citation],
-            outside_topic=False,
-            outside_topic_note="Voice response generated with conservative fallback due to model formatting issues.",
-            confidence=0.2,
-            suggested_followups=["Can you ask a narrower question about a specific timeline event?"],
-        )
+        return _build_low_confidence_cited_answer(citation=fallback_citation, voice_mode=True)
