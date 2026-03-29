@@ -1,9 +1,9 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import { defineConfig } from 'vite';
 
-export default defineConfig(({mode}) => {
+export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -17,6 +17,7 @@ export default defineConfig(({mode}) => {
         '/api': {
           target: 'http://localhost:8000',
           changeOrigin: true,
+          ws: true,
           rewrite: (path) => path,
         },
       },

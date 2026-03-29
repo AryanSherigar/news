@@ -512,6 +512,7 @@ export default function App() {
   const timelineRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const recognitionLastErrorRef = useRef<string | null>(null);
   const voiceSocketRef = useRef<WebSocket | null>(null);
   const voiceManualStopRef = useRef(false);
   const micAudioContextRef = useRef<AudioContext | null>(null);
@@ -730,7 +731,7 @@ export default function App() {
   }, [chatMessages, chatLoading]);
 
   useEffect(() => {
-    const speechCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const speechCtor = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     const audioCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
     const mediaDevicesSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
     setVoiceSupported(Boolean(speechCtor) && Boolean(audioCtor) && mediaDevicesSupported);
@@ -1054,7 +1055,20 @@ export default function App() {
     socket.binaryType = 'arraybuffer';
     voiceSocketRef.current = socket;
 
+    const connectTimeoutId = window.setTimeout(() => {
+      if (socket.readyState === WebSocket.CONNECTING) {
+        setVoiceError('Voice connection timed out. Verify backend is running and websocket proxy is enabled.');
+        setVoiceConnecting(false);
+        socket.close();
+      }
+    }, 8000);
+
+    const clearConnectTimeout = () => {
+      window.clearTimeout(connectTimeoutId);
+    };
+
     socket.onopen = () => {
+      clearConnectTimeout();
       setVoiceConnecting(false);
       setVoiceConnected(true);
       socket.send(JSON.stringify({
@@ -1149,6 +1163,7 @@ export default function App() {
     };
 
     socket.onclose = () => {
+      clearConnectTimeout();
       setVoiceConnected(false);
       setVoiceConnecting(false);
       setVoiceListening(false);
@@ -1158,6 +1173,7 @@ export default function App() {
     };
 
     socket.onerror = () => {
+      clearConnectTimeout();
       setVoiceError('Voice connection failed. Please try again.');
       setVoiceConnecting(false);
       setVoiceConnected(false);
@@ -1216,7 +1232,7 @@ export default function App() {
       return;
     }
 
-    const recognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognitionCtor = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!recognitionCtor) {
       setVoiceError('Browser speech recognition is not supported.');
       return;
@@ -1232,14 +1248,14 @@ export default function App() {
 
     voiceManualStopRef.current = false;
     const recognition = new recognitionCtor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.interimResults = false;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
       setVoiceListening(true);
       setVoiceError(null);
-      void startRawAudioCapture();
+      recognitionLastErrorRef.current = null;
     };
 
     recognition.onresult = (event: any) => {
@@ -1262,8 +1278,25 @@ export default function App() {
       }
     };
 
-    recognition.onerror = () => {
-      setVoiceError('Microphone transcription failed. Please retry.');
+    recognition.onerror = (event: any) => {
+      const errorCode = String(event?.error ?? 'unknown');
+      recognitionLastErrorRef.current = errorCode;
+
+      // Ignore non-fatal/no-op cases to avoid noisy error loops.
+      if (errorCode === 'aborted' || errorCode === 'no-speech') {
+        return;
+      }
+
+      if (errorCode === 'not-allowed' || errorCode === 'service-not-allowed') {
+        setVoiceError('Microphone access is blocked. Allow microphone permission in your browser and try again.');
+      } else if (errorCode === 'audio-capture') {
+        setVoiceError('No working microphone was found. Check OS/browser microphone settings.');
+      } else if (errorCode === 'network') {
+        setVoiceError('Speech recognition service is temporarily unavailable in this browser. Please click Start Mic again.');
+      } else {
+        setVoiceError('Microphone transcription failed. Please retry.');
+      }
+
       setVoiceListening(false);
       stopRawAudioCapture();
     };
@@ -1271,14 +1304,12 @@ export default function App() {
     recognition.onend = () => {
       setVoiceListening(false);
       stopRawAudioCapture();
-      if (voiceConnected && !voiceManualStopRef.current) {
-        recognition.start();
-      }
+      recognitionRef.current = null;
     };
 
     recognitionRef.current = recognition;
     recognition.start();
-  }, [sendVoiceUtterance, startRawAudioCapture, stopRawAudioCapture, voiceConnected, voiceListening]);
+  }, [sendVoiceUtterance, stopRawAudioCapture, voiceConnected, voiceListening]);
 
   const sendChatMessage = async () => {
     if (!data || !topic.trim()) return;
