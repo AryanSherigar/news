@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
-
 # Story Arc Tracker - Narrative Intelligence Platform
 
 **Transform real-world events into structured story narratives with AI-powered analysis and interactive visualization.**
@@ -140,38 +136,45 @@ curl http://localhost:8000/health
 - **Google Gemini** — Optional fallback (legacy)
 
 ### Data Services
-- **Pinecone** or **OpenSearch** — Vector database
-- **GNews API** + RSS feeds — News retrieval fallback
-        │  │ /api/analyze               │
-        │  │ /api/player-profile        │
-        │  │ /api/chat                  │
-        │  │ /api/chat/stream           │
-        │  │ /api/voice/chat (WS)       │
-        └──┼────────────────────────────┘
-           │
-    ┌──────┴─────────────┬──────────────┬──────────────┐
-    │                    │              │              │
-    ▼                    ▼              ▼              ▼
-┌──────────────┐  ┌─────────────┐  ┌─────────┐  ┌──────────┐
-│ AI           │  │ News        │  │ Vector  │  │ Voice    │
-│ Orchestration│  │ Fetcher     │  │ Search  │  │ TTS      │
-│              │  │             │  │         │  │          │
-│ LangChain +  │  │ RSS/GNews   │  │Pinecone│  │ Polly    │
-│ AWS Bedrock  │  │ fallback    │  │ or     │  │ (PCM16)  │
-│ Models       │  │             │  │OpenS.  │  │          │
-└──────────────┘  └─────────────┘  └─────────┴──┴──────────┘
-     │
-     ▼
-┌──────────────────┐
-│ AWS Services     │
-│ - Bedrock LLM    │
-│ - Embeddings     │
-│ - Polly TTS      │
-│ - CloudWatch     │
-│ - Secrets Mgr    │
-└──────────────────┘
-```
+```mermaid
+flowchart TD
 
+API["API Layer
+/api/analyze
+/api/player-profile
+/api/chat
+/api/chat/stream
+/api/voice/chat (WS)"]
+
+AI["AI Orchestration
+LangChain + Bedrock"]
+
+NEWS["News Fetcher
+RSS + GNews"]
+
+VECTOR["Vector Search
+Pinecone / OpenSearch"]
+
+VOICE["Voice TTS
+Polly"]
+
+AWS["AWS Services
+Bedrock
+Embeddings
+Polly
+CloudWatch
+Secrets Manager"]
+
+API --> AI
+API --> NEWS
+API --> VECTOR
+API --> VOICE
+
+AI --> AWS
+NEWS --> AWS
+VECTOR --> AWS
+VOICE --> AWS
+```
 ### Data Flow: User Analysis Request
 
 ```
