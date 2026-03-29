@@ -28,6 +28,10 @@ class VoiceRouterTests(unittest.TestCase):
             voice_sample_rate_hz=16000,
             voice_output_chunk_bytes=3200,
             voice_tts_voice_id="Joanna",
+            voice_stt_silence_timeout_ms=900,
+            voice_stt_max_silence_ms=12000,
+            voice_stt_partial_timeout_ms=2500,
+            voice_stt_reconnect_backoff_ms=350,
         )
         with patch("app.routers.voice.get_settings", return_value=disabled_settings):
             with self.client.websocket_connect('/api/voice/chat') as websocket:
@@ -122,6 +126,59 @@ class VoiceRouterTests(unittest.TestCase):
                 self.assertEqual(final["answer"]["citations"][0]["url"], "https://reuters.com/story")
                 self.assertIn("metrics", final)
                 self.assertIn("final_latency_ms", final["metrics"])
+
+
+    def test_voice_binary_audio_emits_user_final_and_autoruns_turn(self) -> None:
+        answer = ChatAnswer(
+            message="Here is what happened.",
+            citations=[Citation(source_name="AP", url="https://example.com", published_at="2026-03-27T00:00:00Z", snippet="snippet")],
+            outside_topic=False,
+            outside_topic_note=None,
+            confidence=0.8,
+            suggested_followups=[],
+        )
+
+        with patch("app.routers.voice.generate_topic_voice_response", return_value=answer), patch(
+            "app.routers.voice.validate_chat_sources_or_raise",
+            side_effect=lambda value: value,
+        ), patch(
+            "app.routers.voice.synthesize_pcm_audio",
+            return_value=b"\x00\x00" * 200,
+        ):
+            with self.client.websocket_connect('/api/voice/chat') as websocket:
+                websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "session_start",
+                            "topic": "US Iran conflict",
+                            "timeline_slice": [{"id": "event-1"}],
+                            "history": [],
+                        }
+                    )
+                )
+
+                ready = websocket.receive_json()
+                self.assertEqual(ready["type"], "session_ready")
+
+                websocket.send_bytes((b"\xff\x7f" * 600))
+                websocket.send_bytes((b"\x00\x00" * 1200))
+
+                saw_user_final = False
+                saw_assistant_final = False
+                for _ in range(100):
+                    event = websocket.receive()
+                    text = event.get("text")
+                    if not text:
+                        continue
+                    payload = json.loads(text)
+                    if payload.get("type") == "user_final":
+                        saw_user_final = True
+                    if payload.get("type") == "assistant_final":
+                        saw_assistant_final = True
+                        break
+
+                self.assertTrue(saw_user_final)
+                self.assertTrue(saw_assistant_final)
 
 
 if __name__ == "__main__":
