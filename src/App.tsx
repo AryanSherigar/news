@@ -513,6 +513,9 @@ export default function App() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const recognitionLastErrorRef = useRef<string | null>(null);
+  const recognitionPauseTimerRef = useRef<number | null>(null);
+  const recognitionFinalBufferRef = useRef('');
+  const voiceShouldListenRef = useRef(false);
   const voiceSocketRef = useRef<WebSocket | null>(null);
   const voiceManualStopRef = useRef(false);
   const micAudioContextRef = useRef<AudioContext | null>(null);
@@ -523,6 +526,13 @@ export default function App() {
   const playbackCursorRef = useRef(0);
   const activePlaybackSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const accentColor = isDarkMode ? '#d33a3f' : '#b61f24';
+
+  const clearRecognitionPauseTimer = useCallback(() => {
+    if (recognitionPauseTimerRef.current !== null) {
+      window.clearTimeout(recognitionPauseTimerRef.current);
+      recognitionPauseTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 768px)');
@@ -1164,29 +1174,38 @@ export default function App() {
 
     socket.onclose = () => {
       clearConnectTimeout();
+      voiceShouldListenRef.current = false;
       setVoiceConnected(false);
       setVoiceConnecting(false);
       setVoiceListening(false);
       setVoiceInterimText('');
+      recognitionFinalBufferRef.current = '';
+      clearRecognitionPauseTimer();
       stopRawAudioCapture();
       stopAssistantPlayback(false);
     };
 
     socket.onerror = () => {
       clearConnectTimeout();
+      voiceShouldListenRef.current = false;
       setVoiceError('Voice connection failed. Please try again.');
       setVoiceConnecting(false);
       setVoiceConnected(false);
+      recognitionFinalBufferRef.current = '';
+      clearRecognitionPauseTimer();
       stopRawAudioCapture();
       stopAssistantPlayback(false);
     };
-  }, [chatMessages, chatTimelineSlice, data, playPcmChunk, stopAssistantPlayback, stopRawAudioCapture, topic]);
+  }, [chatMessages, chatTimelineSlice, clearRecognitionPauseTimer, data, playPcmChunk, stopAssistantPlayback, stopRawAudioCapture, topic]);
 
   const stopVoiceSession = useCallback(() => {
     voiceManualStopRef.current = true;
+    voiceShouldListenRef.current = false;
     setVoiceListening(false);
     setVoiceInterimText('');
     setVoiceLatencyLabel('');
+    recognitionFinalBufferRef.current = '';
+    clearRecognitionPauseTimer();
     stopRawAudioCapture();
     stopAssistantPlayback(false);
     if (recognitionRef.current) {
@@ -1200,7 +1219,7 @@ export default function App() {
       voiceSocketRef.current.close();
       voiceSocketRef.current = null;
     }
-  }, [stopAssistantPlayback, stopRawAudioCapture]);
+  }, [clearRecognitionPauseTimer, stopAssistantPlayback, stopRawAudioCapture]);
 
   const sendVoiceUtterance = useCallback((utterance: string) => {
     const socket = voiceSocketRef.current;
@@ -1226,6 +1245,22 @@ export default function App() {
     }));
   }, []);
 
+  const flushBufferedSpeech = useCallback(() => {
+    clearRecognitionPauseTimer();
+    const buffered = recognitionFinalBufferRef.current.trim();
+    if (!buffered) return;
+    recognitionFinalBufferRef.current = '';
+    sendVoiceUtterance(buffered);
+  }, [clearRecognitionPauseTimer, sendVoiceUtterance]);
+
+  const scheduleBufferedSpeechFlush = useCallback(() => {
+    clearRecognitionPauseTimer();
+    recognitionPauseTimerRef.current = window.setTimeout(() => {
+      recognitionPauseTimerRef.current = null;
+      flushBufferedSpeech();
+    }, 900);
+  }, [clearRecognitionPauseTimer, flushBufferedSpeech]);
+
   const toggleVoiceListening = useCallback(() => {
     if (!voiceConnected) {
       setVoiceError('Connect voice mode before speaking.');
@@ -1240,16 +1275,21 @@ export default function App() {
 
     if (voiceListening && recognitionRef.current) {
       voiceManualStopRef.current = true;
+      voiceShouldListenRef.current = false;
+      clearRecognitionPauseTimer();
+      recognitionFinalBufferRef.current = '';
       recognitionRef.current.stop();
       stopRawAudioCapture();
       setVoiceListening(false);
+      setVoiceInterimText('');
       return;
     }
 
     voiceManualStopRef.current = false;
+    voiceShouldListenRef.current = true;
     const recognition = new recognitionCtor();
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
 
     recognition.onstart = () => {
@@ -1272,9 +1312,12 @@ export default function App() {
         }
       }
 
+      if (finalText) {
+        recognitionFinalBufferRef.current = `${recognitionFinalBufferRef.current}${finalText} `;
+      }
       setVoiceInterimText(interim.trim());
-      if (finalText.trim()) {
-        sendVoiceUtterance(finalText.trim());
+      if (recognitionFinalBufferRef.current.trim() || interim.trim()) {
+        scheduleBufferedSpeechFlush();
       }
     };
 
@@ -1305,11 +1348,36 @@ export default function App() {
       setVoiceListening(false);
       stopRawAudioCapture();
       recognitionRef.current = null;
+      flushBufferedSpeech();
+
+      const fatalError = ['not-allowed', 'service-not-allowed', 'audio-capture'].includes(recognitionLastErrorRef.current ?? '');
+      const shouldRestart = voiceShouldListenRef.current && !voiceManualStopRef.current && !fatalError;
+
+      if (shouldRestart) {
+        window.setTimeout(() => {
+          if (!voiceShouldListenRef.current || voiceManualStopRef.current || recognitionRef.current) return;
+          try {
+            const restarted = new recognitionCtor();
+            restarted.continuous = true;
+            restarted.interimResults = true;
+            restarted.lang = 'en-US';
+            restarted.onstart = recognition.onstart;
+            restarted.onresult = recognition.onresult;
+            restarted.onerror = recognition.onerror;
+            restarted.onend = recognition.onend;
+            recognitionRef.current = restarted;
+            restarted.start();
+          } catch {
+            setVoiceError('Microphone transcription stopped. Click Start Mic to resume.');
+            voiceShouldListenRef.current = false;
+          }
+        }, 120);
+      }
     };
 
     recognitionRef.current = recognition;
     recognition.start();
-  }, [sendVoiceUtterance, stopRawAudioCapture, voiceConnected, voiceListening]);
+  }, [clearRecognitionPauseTimer, flushBufferedSpeech, scheduleBufferedSpeechFlush, stopRawAudioCapture, voiceConnected, voiceListening]);
 
   const sendChatMessage = async () => {
     if (!data || !topic.trim()) return;
