@@ -155,7 +155,8 @@ interface ChatStreamFinalEvent {
 interface ChatStreamErrorEvent {
   type: 'error';
   status?: number;
-  detail?: string | { message?: string };
+  code?: string;
+  detail?: string | { message?: string; action?: string; tts_code?: string; tts_detail?: string };
 }
 
 type ChatStreamEvent = ChatStreamDeltaEvent | ChatStreamFinalEvent | ChatStreamErrorEvent;
@@ -497,6 +498,7 @@ export default function App() {
   const [voiceInterimText, setVoiceInterimText] = useState('');
   const [assistantSpeaking, setAssistantSpeaking] = useState(false);
   const [voiceLatencyLabel, setVoiceLatencyLabel] = useState<string>('');
+  const [voiceUnavailableNotice, setVoiceUnavailableNotice] = useState<string | null>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -1058,6 +1060,7 @@ export default function App() {
     if (voiceSocketRef.current && voiceSocketRef.current.readyState === WebSocket.OPEN) return;
 
     setVoiceError(null);
+    setVoiceUnavailableNotice(null);
     setVoiceConnecting(true);
 
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1148,6 +1151,7 @@ export default function App() {
       }
 
       if (payload.type === 'assistant_audio_start') {
+        setVoiceUnavailableNotice(null);
         setAssistantSpeaking(true);
         return;
       }
@@ -1167,6 +1171,11 @@ export default function App() {
         const detail = typeof payload.detail === 'string'
           ? payload.detail
           : payload.detail?.message || `Voice chat failed with status ${payload.status ?? 500}`;
+
+        if (payload.code === 'assistant_voice_unavailable' || (typeof payload.detail !== 'string' && payload.detail?.tts_code)) {
+          setVoiceUnavailableNotice('Assistant voice unavailable, text response shown.');
+        }
+
         setVoiceError(detail);
         setChatLoading(false);
       }
@@ -1204,6 +1213,7 @@ export default function App() {
     setVoiceListening(false);
     setVoiceInterimText('');
     setVoiceLatencyLabel('');
+    setVoiceUnavailableNotice(null);
     recognitionFinalBufferRef.current = '';
     clearRecognitionPauseTimer();
     stopRawAudioCapture();
@@ -1657,6 +1667,7 @@ export default function App() {
     setChatError(null);
     setChatMessages([]);
     setVoiceError(null);
+    setVoiceUnavailableNotice(null);
     setVoiceInterimText('');
     setAssistantSpeaking(false);
     setTopic(searchQuery);
@@ -2409,6 +2420,9 @@ export default function App() {
                 ) : null}
                 {voiceLatencyLabel ? (
                   <span className="text-xs" style={{ color: 'var(--muted-fg)' }}>{voiceLatencyLabel}</span>
+                ) : null}
+                {voiceUnavailableNotice ? (
+                  <span className="text-xs text-amber-700 dark:text-amber-400">{voiceUnavailableNotice}</span>
                 ) : null}
               </div>
 
