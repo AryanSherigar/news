@@ -2,6 +2,7 @@ fastapi==0.135.1
 uvicorn==0.42.0
 langchain==1.2.13
 langchain-aws==1.4.1
+langchain-core>=1.2.10,<2.0.0
 langchain-google-genai==4.2.1
 pydantic==2.12.5
 pydantic-settings==2.3.4
@@ -9,3 +10,4 @@ python-dotenv==1.0.1
 aiohttp==3.13.3
 boto3>=1.42.42,<2
 opensearch-py==2.8.0
+audioop-lts

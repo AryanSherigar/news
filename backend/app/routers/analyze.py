@@ -1,9 +1,10 @@
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
 from app.constants import AnalyzeRequest
-from app.schemas import StoryData
+from app.schemas import NewsItem, StoryData
 from app.services.ai_orchestration import analyze_story
 from app.services.news_fetcher import fetch_news_context
 from app.services.source_validator import (
@@ -43,6 +44,8 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
         )
 
         if news_context.get("empty_context"):
+            fetched_at_str = news_context["fetched_at"]
+            fetched_at = datetime.fromisoformat(fetched_at_str) if isinstance(fetched_at_str, str) else fetched_at_str
             return StoryData(
                 timeline=[],
                 players=[],
@@ -50,13 +53,17 @@ async def analyze(request: AnalyzeRequest) -> StoryData:
                 arcs=[],
                 insights=[],
                 news_context=[],
-                fetched_at=news_context["fetched_at"],
+                fetched_at=fetched_at,
             )
 
         story_data = await analyze_story(request.topic, news_context["prompt_context"])
+        # Convert dicts back to NewsItem objects and ISO string to datetime
+        news_items = [NewsItem(**item) for item in news_context["items"]]
+        fetched_at_str = news_context["fetched_at"]
+        fetched_at = datetime.fromisoformat(fetched_at_str) if isinstance(fetched_at_str, str) else fetched_at_str
         response_payload = story_data.model_copy(update={
-            "news_context": news_context["items"],
-            "fetched_at": news_context["fetched_at"],
+            "news_context": news_items,
+            "fetched_at": fetched_at,
         })
         validate_story_sources_or_raise(response_payload)
         return response_payload
