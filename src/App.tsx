@@ -6,6 +6,7 @@ import { Loader2, Search, TrendingUp, Users, Clock, AlertCircle, Eye, Trophy, Tr
 import * as htmlToImage from 'html-to-image';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { buildBufferedTranscript, shouldAutoRestartRecognition, shouldScheduleSpeechFlush } from './voiceRecognitionLoop';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -1323,10 +1324,16 @@ export default function App() {
       }
 
       if (finalText) {
-        recognitionFinalBufferRef.current = `${recognitionFinalBufferRef.current}${finalText} `;
+        recognitionFinalBufferRef.current = buildBufferedTranscript({
+          existingBuffer: recognitionFinalBufferRef.current,
+          finalText,
+        });
       }
       setVoiceInterimText(interim.trim());
-      if (recognitionFinalBufferRef.current.trim() || interim.trim()) {
+      if (shouldScheduleSpeechFlush({
+        bufferedTranscript: recognitionFinalBufferRef.current,
+        interimTranscript: interim,
+      })) {
         scheduleBufferedSpeechFlush();
       }
     };
@@ -1360,8 +1367,11 @@ export default function App() {
       recognitionRef.current = null;
       flushBufferedSpeech();
 
-      const fatalError = ['not-allowed', 'service-not-allowed', 'audio-capture'].includes(recognitionLastErrorRef.current ?? '');
-      const shouldRestart = voiceShouldListenRef.current && !voiceManualStopRef.current && !fatalError;
+      const shouldRestart = shouldAutoRestartRecognition({
+        shouldListen: voiceShouldListenRef.current,
+        manualStop: voiceManualStopRef.current,
+        lastError: recognitionLastErrorRef.current,
+      });
 
       if (shouldRestart) {
         window.setTimeout(() => {
