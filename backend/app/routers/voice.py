@@ -1,4 +1,5 @@
 import asyncio
+import audioop
 import json
 import logging
 import time
@@ -21,6 +22,134 @@ from app.services.voice_tts import synthesize_pcm_audio
 
 router = APIRouter(prefix="/api", tags=["voice"])
 logger = logging.getLogger(__name__)
+
+
+class StreamingSpeechPipeline:
+    """Lightweight streaming speech pipeline with VAD-style segmentation.
+
+    This is an STT-equivalent fallback that turns binary PCM ingress into
+    interim/final transcript events and end-of-utterance boundaries.
+    """
+
+    def __init__(
+        self,
+        *,
+        sample_rate_hz: int,
+        silence_timeout_ms: int,
+        max_silence_ms: int,
+        partial_timeout_ms: int,
+        reconnect_backoff_ms: int,
+    ) -> None:
+        self.sample_rate_hz = sample_rate_hz
+        self.silence_timeout_ms = max(200, silence_timeout_ms)
+        self.max_silence_ms = max(self.silence_timeout_ms, max_silence_ms)
+        self.partial_timeout_ms = max(500, partial_timeout_ms)
+        self.reconnect_backoff_ms = max(100, reconnect_backoff_ms)
+
+        self._speaking = False
+        self._speech_bytes = 0
+        self._speech_started_at = 0.0
+        self._last_audio_at = 0.0
+        self._last_partial_at = 0.0
+        self._interim_seq = 0
+        self._session_started_at = time.monotonic()
+
+    async def reconnect(self) -> None:
+        # Placeholder for external STT reconnection (AWS Transcribe Streaming/etc).
+        await asyncio.sleep(self.reconnect_backoff_ms / 1000)
+
+    def _is_voiced(self, chunk: bytes) -> bool:
+        if not chunk:
+            return False
+        try:
+            return audioop.rms(chunk, 2) >= 180
+        except audioop.error:
+            return False
+
+    def ingest_audio(self, chunk: bytes) -> list[dict[str, Any]]:
+        now = time.monotonic()
+        events: list[dict[str, Any]] = []
+        self._last_audio_at = now
+
+        if not chunk:
+            return events
+
+        if self._is_voiced(chunk):
+            if not self._speaking:
+                self._speaking = True
+                self._speech_bytes = 0
+                self._speech_started_at = now
+                self._interim_seq = 0
+
+            self._speech_bytes += len(chunk)
+            if now - self._last_partial_at >= self.partial_timeout_ms / 1000:
+                self._interim_seq += 1
+                events.append(
+                    {
+                        "type": "user_interim",
+                        "text": f"[listening… {self._speech_bytes} bytes]",
+                        "is_final": False,
+                        "segment_seq": self._interim_seq,
+                    }
+                )
+                self._last_partial_at = now
+
+            return events
+
+        if self._speaking:
+            duration_ms = int((now - self._speech_started_at) * 1000)
+            transcript = f"[voice utterance {duration_ms}ms/{self._speech_bytes} bytes]"
+            events.append(
+                {
+                    "type": "user_final",
+                    "text": transcript,
+                    "is_final": True,
+                    "end_of_utterance": True,
+                    "duration_ms": duration_ms,
+                }
+            )
+            self._speaking = False
+            self._speech_bytes = 0
+            self._interim_seq = 0
+
+        return events
+
+    def guardrail_events(self) -> list[dict[str, Any]]:
+        now = time.monotonic()
+        events: list[dict[str, Any]] = []
+
+        if self._last_audio_at and (now - self._last_audio_at) * 1000 >= self.max_silence_ms:
+            events.append(
+                {
+                    "type": "voice_guardrail",
+                    "code": "max_silence",
+                    "detail": "No incoming audio detected within max silence window",
+                }
+            )
+            self._last_audio_at = now
+
+        if self._speaking and self._last_partial_at and (now - self._last_partial_at) * 1000 >= self.partial_timeout_ms:
+            events.append(
+                {
+                    "type": "voice_guardrail",
+                    "code": "partial_timeout",
+                    "detail": "No partial transcript update within timeout",
+                }
+            )
+            self._last_partial_at = now
+
+        if (now - self._session_started_at) * 1000 >= 30 * 60 * 1000:
+            events.append(
+                {
+                    "type": "voice_guardrail",
+                    "code": "reconnect",
+                    "detail": "Refreshing streaming transcription session",
+                }
+            )
+            self._session_started_at = now
+
+        return events
+
 
 
 def _build_story_context(topic: str, timeline_slice: list[dict[str, Any]]) -> dict[str, Any]:
@@ -86,6 +215,14 @@ async def voice_chat(websocket: WebSocket) -> None:
     disconnect_reason = "unknown"
     audio_ingress_bytes = 0
     audio_ingress_chunks = 0
+
+    speech_pipeline = StreamingSpeechPipeline(
+        sample_rate_hz=sample_rate_hz,
+        silence_timeout_ms=settings.voice_stt_silence_timeout_ms,
+        max_silence_ms=settings.voice_stt_max_silence_ms,
+        partial_timeout_ms=settings.voice_stt_partial_timeout_ms,
+        reconnect_backoff_ms=settings.voice_stt_reconnect_backoff_ms,
+    )
 
     send_lock = asyncio.Lock()
     active_turn_id: str | None = None
@@ -278,6 +415,59 @@ async def voice_chat(websocket: WebSocket) -> None:
                 if chunk:
                     audio_ingress_bytes += len(chunk)
                     audio_ingress_chunks += 1
+                    # Keep barge-in active when user starts speaking.
+                    await cancel_active_turn(reason="user_speaking")
+
+                stt_events = speech_pipeline.ingest_audio(chunk)
+                for event in stt_events:
+                    await send_json(
+                        {
+                            **event,
+                            "session_id": session_id,
+                            "timestamp_ms": _current_millis(),
+                        }
+                    )
+
+                    if event.get("type") == "user_final" and event.get("end_of_utterance"):
+                        if not topic or not timeline_slice:
+                            await send_json(
+                                {
+                                    "type": "error",
+                                    "status": 400,
+                                    "detail": "Voice session is not initialized",
+                                }
+                            )
+                            continue
+
+                        user_message = str(event.get("text") or "").strip()
+                        if not user_message:
+                            continue
+
+                        story_context = _build_story_context(topic, timeline_slice)
+                        turn_history = history[-6:]
+                        turn_counter += 1
+                        turn_id = f"turn-{turn_counter}-{uuid.uuid4().hex[:8]}"
+                        active_turn_id = turn_id
+                        active_turn_task = asyncio.create_task(
+                            run_turn(
+                                turn_id=turn_id,
+                                user_message=user_message,
+                                turn_history=turn_history,
+                                story_context=story_context,
+                            )
+                        )
+
+                for guardrail in speech_pipeline.guardrail_events():
+                    await send_json(
+                        {
+                            **guardrail,
+                            "session_id": session_id,
+                            "timestamp_ms": _current_millis(),
+                        }
+                    )
+                    if guardrail.get("code") == "reconnect":
+                        await speech_pipeline.reconnect()
+
                 continue
 
             text_payload = incoming.get("text")

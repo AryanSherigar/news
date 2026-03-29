@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     voice_sample_rate_hz: int = 16000
     voice_output_chunk_bytes: int = 3200
     voice_tts_voice_id: str = "Joanna"
+    voice_stt_silence_timeout_ms: int = 900
+    voice_stt_max_silence_ms: int = 12000
+    voice_stt_partial_timeout_ms: int = 2500
+    voice_stt_reconnect_backoff_ms: int = 350
 
     opensearch_host: str = ""
     opensearch_index_name: str = "timeline_chunks"
