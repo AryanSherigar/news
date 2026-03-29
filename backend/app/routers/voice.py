@@ -63,6 +63,17 @@ async def voice_chat(websocket: WebSocket) -> None:
     await websocket.accept()
 
     settings = get_settings()
+    if not settings.voice_duplex_enabled:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "status": 503,
+                "detail": "Duplex voice is currently disabled",
+            }
+        )
+        await websocket.close(code=1013)
+        return
+
     sample_rate_hz = settings.voice_sample_rate_hz
     audio_chunk_bytes = settings.voice_output_chunk_bytes
 

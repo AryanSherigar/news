@@ -1,5 +1,6 @@
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -20,6 +21,21 @@ class VoiceRouterTests(unittest.TestCase):
         self.assertEqual(response["type"], "error")
         self.assertEqual(response["status"], 400)
         self.assertIn("not initialized", response["detail"])
+
+    def test_voice_session_rejects_when_duplex_disabled(self) -> None:
+        disabled_settings = SimpleNamespace(
+            voice_duplex_enabled=False,
+            voice_sample_rate_hz=16000,
+            voice_output_chunk_bytes=3200,
+            voice_tts_voice_id="Joanna",
+        )
+        with patch("app.routers.voice.get_settings", return_value=disabled_settings):
+            with self.client.websocket_connect('/api/voice/chat') as websocket:
+                response = websocket.receive_json()
+
+        self.assertEqual(response["type"], "error")
+        self.assertEqual(response["status"], 503)
+        self.assertIn("disabled", response["detail"].lower())
 
     def test_voice_session_streams_delta_and_final(self) -> None:
         answer = ChatAnswer(

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     bedrock_llm_temperature: float = 0.2
     bedrock_llm_simple_context_char_threshold: int = 6000
     bedrock_llm_enable_fallback: bool = True
+    voice_duplex_enabled: bool = True
     voice_sample_rate_hz: int = 16000
     voice_output_chunk_bytes: int = 3200
     voice_tts_voice_id: str = "Joanna"
