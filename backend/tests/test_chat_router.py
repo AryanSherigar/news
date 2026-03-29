@@ -84,6 +84,12 @@ class ChatRouterTests(unittest.TestCase):
         }
 
         with patch("app.routers.chat.generate_topic_chat_response", return_value=mock_response), patch(
+            "app.routers.chat.fetch_news_context",
+            return_value={"empty_context": True, "items": []},
+        ), patch(
+            "app.routers.chat.fetch_live_news_context",
+            return_value={"empty_context": True, "items": []},
+        ), patch(
             "app.routers.chat.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
         ):
@@ -136,6 +142,12 @@ class ChatRouterTests(unittest.TestCase):
         )
 
         with patch("app.routers.chat.generate_topic_chat_response", return_value=chat_answer), patch(
+            "app.routers.chat.fetch_news_context",
+            return_value={"empty_context": True, "items": []},
+        ), patch(
+            "app.routers.chat.fetch_live_news_context",
+            return_value={"empty_context": True, "items": []},
+        ), patch(
             "app.routers.chat.validate_chat_sources_or_raise",
             side_effect=lambda value: value,
         ):
@@ -148,8 +160,13 @@ class ChatRouterTests(unittest.TestCase):
                 ]
 
         self.assertGreaterEqual(len(events), 2)
-        self.assertEqual(events[0]["type"], "delta")
-        self.assertEqual(events[-1]["type"], "final")
+
+        event_types = [event["type"] for event in events]
+        self.assertEqual(event_types[-1], "final")
+        self.assertTrue(all(event_type == "delta" for event_type in event_types[:-1]))
+
+        rebuilt_message = "".join(event["delta"] for event in events[:-1])
+        self.assertEqual(rebuilt_message, chat_answer.message)
         self.assertEqual(events[-1]["answer"]["message"], chat_answer.message)
 
     def test_chat_retries_with_fresh_news_when_first_answer_is_fallback(self) -> None:

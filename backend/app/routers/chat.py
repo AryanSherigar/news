@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from app.config import get_settings
 from app.constants import ChatRequest
 from app.schemas import ChatAnswer
 from app.services.news_fetcher import fetch_live_news_context, fetch_news_context
@@ -173,11 +174,15 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
             if not words:
                 words = [answer.message]
 
+            settings = get_settings()
+            delay_ms = max(0, settings.chat_stream_simulated_delay_ms)
+
             for index, word in enumerate(words):
                 suffix = " " if index < len(words) - 1 else ""
                 payload = {"type": "delta", "delta": f"{word}{suffix}"}
                 yield json.dumps(payload) + "\n"
-                await asyncio.sleep(0.01)
+                if delay_ms > 0:
+                    await asyncio.sleep(delay_ms / 1000)
 
             yield json.dumps({"type": "final", "answer": answer.model_dump(mode="json")}) + "\n"
         except SourcePolicyViolationError as e:
