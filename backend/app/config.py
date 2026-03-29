@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     source_policy_allowed_source_ids: list[str] = Field(default_factory=list)
     source_policy_source_aliases: dict[str, str] = Field(default_factory=dict)
     source_policy_fallback_text: str = "I don't have enough source-backed information"
+    chat_stream_simulated_delay_ms: int = 0
 
     aws_region: str = "us-east-1"
     bedrock_embedding_model_id: str = "amazon.titan-embed-text-v2:0"
