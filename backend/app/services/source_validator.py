@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from app.services.url_canonicalization import canonicalize_url
 
 from app.schemas import Citation, ChatAnswer, PlayerProfile, StoryData
-from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
+from app.services.source_policy import get_source_policy
 
 
 @dataclass
@@ -28,42 +28,13 @@ class SourcePolicyViolationError(ValueError):
 
 def canonicalize_and_validate_source_url(raw_url: str) -> tuple[str | None, str | None, str | None]:
     """Canonicalize citation URL and verify it belongs to the configured source policy."""
-    if not raw_url:
-        return None, None, "missing_url"
-
-    candidate = raw_url.strip()
-    parsed = urlparse(candidate)
-    if not parsed.scheme and not parsed.netloc:
-        parsed = urlparse(f"https://{candidate}")
-
-    hostname = (parsed.hostname or "").lower()
-    if hostname.startswith("www."):
-        hostname = hostname[4:]
-
-    if not hostname:
-        return None, None, "missing_hostname"
+    canonical_url, hostname, error = canonicalize_url(raw_url)
+    if error:
+        return None, hostname, error
 
     policy = get_source_policy()
     if policy.strict_allowlist_validation and policy.allowed_domains and hostname not in policy.allowed_domains:
         return None, hostname, "disallowed_domain"
-
-    filtered_query: list[tuple[str, str]] = []
-    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        lowered_key = key.lower()
-        if lowered_key.startswith("utm_") or lowered_key in TRACKING_QUERY_PARAMS:
-            continue
-        filtered_query.append((key, value))
-
-    canonical_url = urlunparse(
-        (
-            "https",
-            hostname,
-            parsed.path,
-            parsed.params,
-            urlencode(filtered_query, doseq=True),
-            "",
-        )
-    )
 
     return canonical_url, hostname, None
 

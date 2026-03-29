@@ -2,13 +2,14 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
+from urllib.parse import quote_plus, urlparse
 
 import aiohttp
 
 from app.schemas import NewsItem
 from app.services.bedrock_embeddings import BedrockEmbeddingService
-from app.services.source_policy import TRACKING_QUERY_PARAMS, get_source_policy
+from app.services.source_policy import get_source_policy
+from app.services.url_canonicalization import canonicalize_url
 from app.services.vector_search import OpenSearchVectorSearchService, VectorSearchRequest
 
 
@@ -355,35 +356,13 @@ def _to_news_item_from_vector(source_doc: dict[str, Any]) -> NewsItem | None:
 
 
 def _normalize_and_validate_url(raw_url: str) -> tuple[str | None, str | None, str | None]:
-    if not raw_url:
-        return None, None, "missing_url"
-
-    parsed = urlparse(raw_url)
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
-        return None, None, "missing_hostname"
+    normalized_url, hostname, error = canonicalize_url(raw_url)
+    if error:
+        return None, hostname, error
 
     policy = get_source_policy()
     if policy.strict_allowlist_validation and policy.allowed_domains and hostname not in policy.allowed_domains:
         return None, hostname, "disallowed_domain"
-
-    filtered_query = []
-    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        lowered_key = key.lower()
-        if lowered_key.startswith("utm_") or lowered_key in TRACKING_QUERY_PARAMS:
-            continue
-        filtered_query.append((key, value))
-
-    normalized_url = urlunparse(
-        (
-            "https",
-            hostname,
-            parsed.path,
-            parsed.params,
-            urlencode(filtered_query, doseq=True),
-            "",
-        )
-    )
 
     return normalized_url, hostname, None
 

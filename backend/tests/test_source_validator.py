@@ -46,6 +46,19 @@ class SourceValidatorTests(unittest.TestCase):
         self.assertEqual(domain, "theguardian.com")
         self.assertIsNone(error)
 
+    def test_canonicalize_and_validate_source_url_accepts_schemeless_input(self) -> None:
+        with patch(
+            "app.services.source_validator.get_source_policy",
+            return_value=_policy_fixture(strict=True),
+        ):
+            canonical, domain, error = canonicalize_and_validate_source_url(
+                " www.reuters.com/story?utm_source=newsletter&id=42 "
+            )
+
+        self.assertEqual(canonical, "https://reuters.com/story?id=42")
+        self.assertEqual(domain, "reuters.com")
+        self.assertIsNone(error)
+
     def test_validate_story_sources_or_raise_rejects_non_allowlisted_domain_in_strict_mode(self) -> None:
         story = _make_story("https://example.com/disallowed")
 
