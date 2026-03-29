@@ -18,7 +18,7 @@ from app.services.source_validator import (
     validate_chat_sources_or_raise,
     violations_to_response_payload,
 )
-from app.services.voice_tts import synthesize_pcm_audio
+from app.services.voice_tts import VoiceTtsError, synthesize_pcm_audio
 
 router = APIRouter(prefix="/api", tags=["voice"])
 logger = logging.getLogger(__name__)
@@ -295,11 +295,37 @@ async def voice_chat(websocket: WebSocket) -> None:
             if turn_id in canceled_turn_ids:
                 return
 
-            pcm_bytes = await synthesize_pcm_audio(
-                text=answer.message,
-                sample_rate_hz=sample_rate_hz,
-                voice_id=settings.voice_tts_voice_id,
-            )
+            try:
+                pcm_bytes = await synthesize_pcm_audio(
+                    text=answer.message,
+                    sample_rate_hz=sample_rate_hz,
+                    voice_id=settings.voice_tts_voice_id,
+                )
+            except VoiceTtsError as exc:
+                logger.warning(
+                    "voice_tts_failed session_id=%s turn_id=%s code=%s detail=%s",
+                    session_id,
+                    turn_id,
+                    exc.code,
+                    exc.detail,
+                )
+                await send_json(
+                    {
+                        "type": "error",
+                        "status": 502,
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "code": "assistant_voice_unavailable",
+                        "detail": {
+                            "message": "Assistant voice unavailable. Showing text response instead.",
+                            "tts_code": exc.code,
+                            "tts_detail": exc.detail,
+                            "action": "Continue reading the assistant text response and retry voice later.",
+                        },
+                        "timestamp_ms": _current_millis(),
+                    }
+                )
+                pcm_bytes = exc.fallback_audio or b""
 
             await send_json(
                 {
