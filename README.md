@@ -11,6 +11,7 @@ A full-stack platform combining news retrieval, semantic search, and AI reasonin
 - [Quick Start (5 Minutes)](#quick-start-5-minutes)
 - [Features & Capabilities](#features--capabilities)
 - [Tech Stack & Architecture](#tech-stack--architecture)
+- [AI Orchestration Deep-Dive](#ai-orchestration-deep-dive)
 - [Prerequisites](#prerequisites)
 - [Installation & Setup](#installation--setup)
 - [Configuration Reference](#configuration-reference)
@@ -121,21 +122,11 @@ curl http://localhost:8000/health
   - Voice Model: `amazon.nova-2-sonic-v1:0` (fast voice responses)
   - Fallback: `mistral.mistral-large-3-675b-instruct`
 - **AWS Bedrock Embeddings** — Amazon Titan Embed Text v2.0 for semantic search vectors
-- React 19, TypeScript, Vite 6, Tailwind CSS 4
-- React Flow (network graphs), Recharts (timelines), Motion (animations)
-
-### Backend Stack  
-- FastAPI, Uvicorn, Python 3.10+
-- LangChain 1.2 + AWS Bedrock integration
-- Pydantic 2 for data validation
-
-### AI & ML Services
-- **AWS Bedrock** — LLM API (Amazon Nova models + Mistral fallback)
-- **Bedrock Embeddings** — Titan Embed Text v2.0 for vector search
 - **Amazon Polly** — Neural text-to-speech
 - **Google Gemini** — Optional fallback (legacy)
 
 ### Data Services
+
 ```mermaid
 flowchart TD
 
@@ -175,6 +166,7 @@ NEWS --> AWS
 VECTOR --> AWS
 VOICE --> AWS
 ```
+
 ### Data Flow: User Analysis Request
 
 ```
@@ -221,10 +213,64 @@ VOICE --> AWS
 
 ---
 
+## AI Orchestration Deep-Dive
+
+This section documents how the backend's LLM agents are structured, how a chat/voice request actually flows through the system, and how failures are contained at each tier. It complements the high-level [Tech Stack & Architecture](#tech-stack--architecture) section above with the internal agent design.
+
+### System Architecture Diagram
+
+<img width="2048" height="1646" alt="architecture-diagram" src="https://github.com/user-attachments/assets/cf99e799-1a5c-429f-9e6e-e41463a5c06c" />
+
+
+### Agent Roles & Configurations
+
+The system operates as a strictly orchestrated pipeline of specialized LLM chains ("Agents") powered by AWS Bedrock, rather than an unconstrained swarm.
+
+- **Chat Agent** (`_chat_model`) — The primary conversational engine. It answers user queries grounded entirely in pre-analyzed `story_context` (historical timelines) and enforces a strict Pydantic JSON schema (`ChatAnswer`) for all outputs.
+- **Voice Agent** (`_voice_model`) — A specialized iteration of the Chat Agent tailored for voice-to-text inputs. It generates responses optimized for TTS (Text-to-Speech) brevity and natural conversational cadence.
+- **Analysis & Profiling Agents** (`_select_primary_model`) — The data-processing heavyweights:
+  - *The Story Analyzer* evaluates raw news context to build structured `StoryData` (timelines, insights).
+  - *The Profiler* analyzes related players, historical timelines, and relationship networks to construct deep-dive character or entity profiles.
+  - *Note:* These agents dynamically route tasks to either a lightweight or heavyweight LLM based on context size (`_is_simple_request`) to optimize latency and cost.
+
+### Communication Flow & Orchestration
+
+The backend utilizes a synchronous orchestration pipeline augmented with asynchronous (`asyncio`) tool calls.
+
+1. **Ingestion & Structuring** — The FastAPI router receives a query and historical timeline slice. It validates the payload and passes it to the AI Orchestrator.
+2. **Initial Generation** — The Orchestrator compiles a LangChain prompt (injecting system constraints and allowed source policies) and invokes the Chat Agent to produce a draft response.
+3. **The "Refresh" Evaluation (Quality Control)** — The generated draft is evaluated by the **Response Refresher**. A refresh is triggered if:
+   - The provided timeline context is too thin (e.g., lacks sufficient events or citations).
+   - The LLM's confidence score is suspiciously low, or it returns a generic fallback statement.
+4. **Dynamic Context Retrieval (RAG)** — If a refresh is required, the system converts the query into vectors using Bedrock Embeddings and queries the Pinecone Vector DB.
+5. **Re-Generation** — The Orchestrator intercepts the newly retrieved `fresh_news_evidence`, appends it to the prompt, and forces the Chat Agent to regenerate a stronger, highly grounded response.
+6. **Guardrail Validation** — The finalized payload is pushed through the **Source Validator**, which strips disallowed domains and canonicalizes all cited URLs.
+7. **Delivery** — The safe, verified payload is returned to the client as a single JSON object or a simulated NDJSON stream.
+
+### Tool Integrations
+
+The AI Agents are constrained and augmented by a deterministic tool ecosystem to ensure factual accuracy:
+
+- **AWS Bedrock Converse API** — The core foundational model provider, utilizing `with_structured_output` to force the LLMs into emitting predictable data structures (avoiding parsing errors).
+- **Pinecone Vector Database (OpenSearch)** — The primary retrieval tool. It filters documents dynamically using strict metadata constraints (source policies, domain allowlists, publication date windows).
+- **RSS2JSON Proxy (Google News)** — A live internet scraping tool used *strictly* as a fallback when the internal vector database yields no results.
+- **URL Canonicalization Engine** — A security and data-cleanliness tool that strips tracking parameters and validates parsed hostnames against internal whitelists.
+
+### Multi-Tier Resiliency & Error-Handling
+
+To prevent catastrophic failures during complex reasoning tasks, the architecture implements a multi-tier fallback strategy:
+
+- **Tier 1: Model-Level Fallbacks** — Every primary LLM invocation is wrapped in an `_invoke_with_optional_fallback` chain. If the primary model fails to generate valid JSON or fails internal quality checks (e.g., empty insights), the prompt is automatically rerouted to a designated, higher-resiliency `_fallback_model`.
+- **Tier 2: Retrieval Fallbacks** — Vector searches can be volatile. If Pinecone throws a timeout, connection error, or returns zero matches, the system intercepts the exception and silently pivots to the Live RSS Google News proxy to ensure the LLM still receives context.
+- **Tier 3: Strict Policy Guardrails** — The system prioritizes safety over helpfulness. If an LLM hallucinates a citation or cites an unapproved domain, the Source Validator raises a `SourcePolicyViolationError`. This terminates the process and returns an actionable `422 Unprocessable Entity` error to the client outlining exactly which rule was broken.
+- **Tier 4: Citation Coercion (Extreme Fallback)** — If all LLMs fail to format a response without crashing, the Orchestrator executes a hardcoded rescue protocol. It extracts the first valid citation from the raw `story_context` and constructs a pre-templated response (e.g., *"Based on [Source] reporting…"*). It sets the confidence score to `0.35` and adds a system note indicating a formatting failure occurred, ensuring the user interface does not break.
+
+---
+
 ## Prerequisites
 
-**System:** Node.js v18+, Python v3.10+, 4GB+ RAM, ~500MB disk  
-**AWS:** Bedrock access (models: nova-pro-v1, nova-2-lite-v1, nova-2-sonic-v1, mistral-large)  
+**System:** Node.js v18+, Python v3.10+, 4GB+ RAM, ~500MB disk
+**AWS:** Bedrock access (models: nova-pro-v1, nova-2-lite-v1, nova-2-sonic-v1, mistral-large)
 **Vector DB:** Pinecone or OpenSearch account
 
 **AWS Credentials Setup:**
@@ -283,9 +329,9 @@ See [docker-compose.yml](docker-compose.yml) template in the README's Deployment
 
 ## Configuration Reference
 
-### Environment Variables (Complete)
+All configuration is managed via environment variables. Create a `.env` file in the `backend/` directory. See [.env.example](backend/.env.example) for the complete reference.
 
-All configuration is managed via environment variables. Create a `.env` file in the `backend/` directory.
+### Environment Variables (Complete)
 
 | Variable | Type | Default | Required | Purpose |
 |----------|------|---------|----------|---------|
@@ -507,22 +553,12 @@ Analyze a topic and return structured narrative data including timeline events, 
   "fetched_at": "2026-03-29T14:22:15Z"
 }
 ```
-All config via `.env` in `backend/` directory. See [.env.example](backend/.env.example) for complete reference.
 
-**Essential Variables:**
-| Variable | Type | Default | Purpose |
-|----------|------|---------|---------|
-| `AWS_REGION` | string | `us-east-1` | AWS region |
-| `BEDROCK_LLM_DEFAULT_MODEL_ID` | string | `amazon.nova-pro-v1:0` | Main LLM |
-| `BEDROCK_EMBEDDING_MODEL_ID` | string | `amazon.titan-embed-text-v2:0` | Embedding model |
-| `PINECONE_API_KEY` | string | — | Pinecone key (or use OpenSearch) |
-| `PINECONE_INDEX_HOST` | string | — | Pinecone host URL |
-| `VOICE_DUPLEX_ENABLED` | bool | `true` | Enable voice chat |
+---
 
-**Quick Configs:**
-- **Local Dev:** See `.env.example` defaults
-- **Production:** Set `BEDROCK_LLM_TEMPERATURE=0.1`, `SOURCE_POLICY_STRICT_ALLOWLIST_VALIDATION=true`
-- **Cost-Optimized:** Use `amazon.nova-2-lite-v1:0` for all models, set `PINECONE_TOP_K=6## `POST /api/chat`
+### Chat
+
+#### `POST /api/chat`
 Ask a question about the analyzed story. Response is grounded in the timeline context.
 
 **Request Body:**
@@ -658,7 +694,7 @@ ws.onopen = () => {
 
 ws.onmessage = (event) => {
   const msg = JSON.parse(event.data);
-  
+
   if (msg.type === 'session_ready') {
     console.log('Ready to send audio');
     // Start capturing user microphone and sending PCM16 chunks
@@ -737,7 +773,7 @@ ws.send(JSON.stringify({type: 'barge_in'}));
   - Node size → based on event involvement frequency
   - Sentiment color shade → red (negative) to green (positive)
   - Labeled with player name and sentiment score
-  
+
 - **Edges:** Relationships between players
   - **Solid line** — Alliance (strength indicated by thickness)
   - **Dashed line** — Conflict (thickness = intensity)
@@ -813,7 +849,7 @@ ws.send(JSON.stringify({type: 'barge_in'}));
   - 🔵 Blue: Processing (sending audio to backend)
   - 🟡 Yellow: Responding (AI generating response)
   - ⚫ Black: Idle
-  
+
 **How to Use:**
 1. Click Microphone button to start
 2. Speak your question naturally (e.g., "Who is winning in this conflict?")
@@ -1201,9 +1237,3 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) file for 
 - **React Flow** — Interactive network visualization
 - **FastAPI** — Modern Python web framework
 - **Tailwind CSS** — Utility-first CSS framework
-
----
-
-**Version** — 1.0 | **Last Updated** — March 29, 2026
-
-For updates and latest documentation, visit the [GitHub repository](https://github.com/your-org/et-ai-hackathon).
