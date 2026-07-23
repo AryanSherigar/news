@@ -1206,29 +1206,6 @@ gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker
 
 ---
 
-## Support
-
-### Getting Help
-
-1. **Documentation** — Read [docs/dataset_spec_3_timelines.md](docs/dataset_spec_3_timelines.md) for data pipeline details
-2. **GitHub Issues** — Check or open issue: https://github.com/your-org/et-ai-hackathon/issues
-3. **Discussions** — Community Q&A: https://github.com/your-org/et-ai-hackathon/discussions
-4. **Email** — Contact: support@example.com
-
-### Reporting Bugs
-
-Include:
-- **Environment** — OS, Python version, Node version
-- **Steps to Reproduce** — Exact actions leading to bug
-- **Error Message** — Full traceback or screenshot
-- **Logs** — Backend logs (`sudo journalctl -u story-arc-backend -n 50`) + browser console logs
-
-### License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
-
----
-
 ## Acknowledgments
 
 - **LangChain** — LLM orchestration framework
