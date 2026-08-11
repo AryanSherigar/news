@@ -32,7 +32,7 @@ Get the application running locally for development and testing.
 
 ### Prerequisites (Install First)
 - **Node.js** v18+ → Download from [nodejs.org](https://nodejs.org/)
-- **Python** v3.10+ → Download from [python.org](https://www.python.org/)
+- **Python** v3.13+ → Download from [python.org](https://www.python.org/)
 - **AWS Credentials** → Required for AWS Bedrock and Polly services
 
 ### Backend Setup
@@ -318,12 +318,240 @@ npm run dev    # http://localhost:3000
 
 **Verify:** Backend at http://localhost:8000/health, Frontend at http://localhost:3000
 
-### Docker (Optional)
+## Docker Setup
+
+Run the entire application (Frontend + Backend) using Docker Compose.
+
+### Prerequisites
+
+- Docker Desktop (Windows/macOS) or Docker Engine (Linux)
+- Docker Compose v2+
+
+Verify installation:
+
 ```bash
-docker-compose up --build
-# Backend: http://localhost:8000, Frontend: http://localhost:3000
+docker --version
+docker compose version
 ```
-See [docker-compose.yml](docker-compose.yml) template in the README's Deployment section.
+
+### Project Structure
+
+```text
+project-root/
+├── docker-compose.yml
+├── Dockerfile                # Frontend Dockerfile
+├── package.json
+├── src/
+│
+├── backend/
+│   ├── Dockerfile            # Backend Dockerfile
+│   ├── requirements.txt
+│   ├── .env
+│   └── app/
+```
+
+### Docker Compose Configuration
+
+```yaml
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+
+  frontend:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+```
+
+### Frontend Dockerfile
+
+```dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
+```
+
+### Backend Dockerfile
+
+```dockerfile
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### Environment Variables
+
+Create a file:
+
+```text
+backend/.env
+```
+
+Example:
+
+```env
+AWS_REGION=us-east-1
+
+BEDROCK_LLM_DEFAULT_MODEL_ID=amazon.nova-pro-v1:0
+BEDROCK_LLM_SIMPLE_MODEL_ID=amazon.nova-2-lite-v1:0
+BEDROCK_LLM_CHAT_MODEL_ID=amazon.nova-2-lite-v1:0
+BEDROCK_LLM_VOICE_MODEL_ID=amazon.nova-2-sonic-v1:0
+
+PINECONE_API_KEY=your_key
+PINECONE_INDEX_HOST=your-index.pinecone.io
+```
+
+### Build and Start
+
+From the project root:
+
+```bash
+docker compose up --build
+```
+
+Run in detached mode:
+
+```bash
+docker compose up -d --build
+```
+
+### Verify Services
+
+Backend health check:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+Frontend:
+
+```text
+http://localhost:3000
+```
+
+Backend API:
+
+```text
+http://localhost:8000
+```
+
+### View Logs
+
+All services:
+
+```bash
+docker compose logs -f
+```
+
+Backend only:
+
+```bash
+docker compose logs -f backend
+```
+
+Frontend only:
+
+```bash
+docker compose logs -f frontend
+```
+
+### Stop Services
+
+```bash
+docker compose down
+```
+
+Remove containers and volumes:
+
+```bash
+docker compose down -v
+```
+
+### Rebuild After Changes
+
+```bash
+docker compose up --build
+```
+
+or
+
+```bash
+docker compose build --no-cache
+docker compose up
+```
+
+### Troubleshooting
+
+#### Frontend cannot connect to backend
+
+Ensure the frontend uses:
+
+```env
+VITE_BACKEND_URL=http://backend:8000
+```
+
+Docker Compose automatically creates a network where the service name
+`backend` resolves to the backend container.
+
+#### Port already in use
+
+Check for existing processes:
+
+```bash
+lsof -i :3000
+lsof -i :8000
+```
+
+Or change the host ports in `docker-compose.yml`.
+
+#### Backend fails on startup
+
+Verify:
+
+- `backend/.env` exists
+- AWS credentials are configured correctly
+- Bedrock model access is enabled
+- Pinecone/OpenSearch configuration is valid
+
+#### Recreate containers from scratch
+
+```bash
+docker compose down -v
+docker system prune -f
+docker compose up --build
+```
 
 ---
 
