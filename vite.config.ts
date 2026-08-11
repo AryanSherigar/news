@@ -12,17 +12,15 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      // Proxy API requests to backend during development
+      host: '0.0.0.0',
       proxy: {
         '/api': {
-          target: 'http://localhost:8000',
+          target: process.env.VITE_BACKEND_URL || 'http://localhost:8000',
           changeOrigin: true,
           ws: true,
           rewrite: (path) => path,
         },
       },
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
     },
   };
